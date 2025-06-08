@@ -1,0 +1,160 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  // output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表
+model User {
+  id          String   @id @default(cuid()) @db.VarChar(30)
+  username    String   @unique @db.VarChar(30)
+  email       String   @unique @db.VarChar(100)
+  password    String   @db.VarChar(255)
+  phoneNumber String?  @map("phone_number") @db.VarChar(20)
+  role        UserRole @default(USER)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // 关联的充电记录
+  chargingRecords ChargingRecord[]
+  // 关联的排队记录
+  queueRecords    QueueRecord[]
+
+  @@map("users")
+}
+
+// 用户角色枚举
+enum UserRole {
+  USER
+  ADMIN
+}
+
+// 充电桩表
+model ChargingPile {
+  id          String            @id @default(cuid()) @db.VarChar(30)
+  name        String            @unique @db.VarChar(10) // A, B, C, D, E
+  type        ChargingPileType  // FAST, SLOW
+  power       Float             // 30 for fast, 7 for slow (kWh/hour)
+  status      ChargingPileStatus @default(NORMAL)
+  position    Int               // 位置编号
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  // 关联的充电记录
+  chargingRecords ChargingRecord[]
+  // 关联的排队记录
+  queueRecords    QueueRecord[]
+
+  @@map("charging_piles")
+}
+
+// 充电桩类型枚举
+enum ChargingPileType {
+  FAST   // 快充
+  SLOW   // 慢充
+}
+
+// 充电桩状态枚举
+enum ChargingPileStatus {
+  NORMAL    // 正常
+  FAULT     // 故障
+  DISABLED  // 已关闭
+}
+
+// 充电记录表
+model ChargingRecord {
+  id            String          @id @default(cuid()) @db.VarChar(30)
+  recordNumber  String          @unique @map("record_number") @db.VarChar(50) // 详单编号
+  userId        String          @map("user_id") @db.VarChar(30)
+  chargingPileId String         @map("charging_pile_id") @db.VarChar(30)
+  
+  // 充电信息
+  requestedAmount Float          @map("requested_amount") // 请求充电量
+  actualAmount    Float          @map("actual_amount") // 实际充电量
+  chargingTime    Float          @map("charging_time") // 充电时长(小时)
+  
+  // 时间信息
+  startTime       DateTime       @map("start_time")
+  endTime         DateTime?      @map("end_time")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  
+  // 费用信息
+  chargingFee     Float          @map("charging_fee") // 充电费用
+  serviceFee      Float          @map("service_fee") // 服务费用
+  totalFee        Float          @map("total_fee") // 总费用
+  
+  status          ChargingStatus @default(WAITING)
+
+  // 关联关系
+  user         User         @relation(fields: [userId], references: [id])
+  chargingPile ChargingPile @relation(fields: [chargingPileId], references: [id])
+
+  @@map("charging_records")
+}
+
+// 充电状态枚举
+enum ChargingStatus {
+  WAITING    // 等待中
+  CHARGING   // 充电中
+  COMPLETED  // 已完成
+  CANCELLED  // 已取消
+  FAULT      // 故障中断
+}
+
+// 排队记录表
+model QueueRecord {
+  id             String          @id @default(cuid()) @db.VarChar(30)
+  queueNumber    String          @unique @map("queue_number") @db.VarChar(10) // 排队号码 (F1, F2, T1, T2)
+  userId         String          @map("user_id") @db.VarChar(30)
+  chargingPileId String?         @map("charging_pile_id") @db.VarChar(30) // 分配的充电桩
+  
+  // 车辆信息
+  batteryCapacity Float          @map("battery_capacity") // 电池总容量
+  requestedAmount Float          @map("requested_amount") // 请求充电量
+  chargingMode    ChargingPileType @map("charging_mode") // 充电模式
+  
+  // 排队信息
+  position        Int             // 队列位置
+  waitingTime     Float?          @map("waiting_time") // 等待时长(小时)
+  status          QueueStatus     @default(WAITING)
+  
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  // 关联关系
+  user         User          @relation(fields: [userId], references: [id])
+  chargingPile ChargingPile? @relation(fields: [chargingPileId], references: [id])
+
+  @@map("queue_records")
+}
+
+// 排队状态枚举
+enum QueueStatus {
+  WAITING       // 等候区等待
+  IN_QUEUE      // 充电桩队列等待
+  CHARGING      // 充电中
+  COMPLETED     // 已完成
+  CANCELLED     // 已取消
+}
+
+// 系统配置表
+model SystemConfig {
+  id    String @id @default(cuid()) @db.VarChar(30)
+  key   String @unique @db.VarChar(100)
+  value String @db.Text
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_configs")
+} 
