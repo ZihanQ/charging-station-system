@@ -375,7 +375,7 @@ chore: 构建过程或辅助工具的变动
 
 ## 📞 联系我们
 
-- 📧 **邮箱**: [your-email@example.com](mailto:your-email@example.com)
+- 📧 **邮箱**: [zihanqiu@bupt.edu.cn](mailto:zihanqiu@bupt.edu.cn)
 - 💬 **讨论**: [GitHub Discussions](https://github.com/ZihanQ/charging-station-system/discussions)
 - 🐛 **问题报告**: [GitHub Issues](https://github.com/ZihanQ/charging-station-system/issues)
 
