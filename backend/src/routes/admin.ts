@@ -17,9 +17,10 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     const [
       totalUsers,
       totalChargingPiles,
-      todayRecords,
+      todayChargingCount,
       currentQueue,
-      revenue
+      todayRevenue,
+      todayPowerConsumption
     ] = await Promise.all([
       prisma.user.count({ where: { role: 'USER' } }),
       prisma.chargingPile.count(),
@@ -47,6 +48,17 @@ router.get('/dashboard', async (req: Request, res: Response) => {
           },
           status: 'COMPLETED'
         }
+      }),
+      prisma.chargingRecord.aggregate({
+        _sum: {
+          actualAmount: true
+        },
+        where: {
+          createdAt: {
+            gte: new Date(new Date().setHours(0, 0, 0, 0))
+          },
+          status: 'COMPLETED'
+        }
       })
     ]);
 
@@ -58,37 +70,21 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       }
     });
 
-    // 获取充电记录状态统计
-    const recordStatusStats = await prisma.chargingRecord.groupBy({
-      by: ['status'],
-      _count: {
-        status: true
-      },
-      where: {
-        createdAt: {
-          gte: new Date(new Date().setHours(0, 0, 0, 0))
-        }
-      }
-    });
+    // 计算正常充电桩和故障充电桩数量
+    const normalPiles = pileStatusStats.find(s => s.status === 'NORMAL')?._count.status || 0;
+    const faultPiles = pileStatusStats.find(s => s.status === 'FAULT')?._count.status || 0;
 
     res.json({
       success: true,
       data: {
-        overview: {
-          totalUsers,
-          totalChargingPiles,
-          todayRecords,
-          currentQueue,
-          todayRevenue: revenue._sum.totalFee || 0
-        },
-        pileStatusStats: pileStatusStats.reduce((acc, item) => {
-          acc[item.status] = item._count.status;
-          return acc;
-        }, {} as Record<string, number>),
-        recordStatusStats: recordStatusStats.reduce((acc, item) => {
-          acc[item.status] = item._count.status;
-          return acc;
-        }, {} as Record<string, number>)
+        totalUsers,
+        totalChargingPiles,
+        normalPiles,
+        currentQueue,
+        faultPiles,
+        todayRevenue: todayRevenue._sum.totalFee || 0,
+        todayChargingCount,
+        todayPowerConsumption: todayPowerConsumption._sum.actualAmount || 0
       }
     });
 
@@ -263,34 +259,22 @@ router.get('/queue', async (req: Request, res: Response) => {
       ]
     });
 
-    // 按充电模式分组
-    const groupedQueue = queueRecords.reduce((acc, record) => {
-      const mode = record.chargingMode;
-      if (!acc[mode]) {
-        acc[mode] = [];
-      }
-      acc[mode].push({
-        id: record.id,
-        queueNumber: record.queueNumber,
-        user: record.user,
-        batteryCapacity: record.batteryCapacity,
-        requestedAmount: record.requestedAmount,
-        position: record.position,
-        status: record.status,
-        chargingPile: record.chargingPile,
-        waitingTime: record.waitingTime,
-        createdAt: record.createdAt
-      });
-      return acc;
-    }, {} as Record<string, any[]>);
+    // 格式化数据为前端期望的格式
+    const formattedRecords = queueRecords.map(record => ({
+      id: record.id,
+      queueNumber: record.queueNumber,
+      username: record.user.username,
+      chargingMode: record.chargingMode,
+      requestedAmount: record.requestedAmount,
+      position: record.position,
+      status: record.status,
+      waitingTime: calculateWaitingTime(record.createdAt),
+      createdAt: record.createdAt.toISOString()
+    }));
 
     res.json({
       success: true,
-      data: {
-        fastQueue: groupedQueue.FAST || [],
-        slowQueue: groupedQueue.SLOW || [],
-        totalWaiting: queueRecords.length
-      }
+      data: formattedRecords
     });
 
   } catch (error) {
@@ -301,6 +285,20 @@ router.get('/queue', async (req: Request, res: Response) => {
     });
   }
 });
+
+// 计算等待时间的辅助函数
+function calculateWaitingTime(createdAt: Date): string {
+  const now = new Date();
+  const diff = now.getTime() - createdAt.getTime();
+  const minutes = Math.floor(diff / (1000 * 60));
+  const hours = Math.floor(minutes / 60);
+  
+  if (hours > 0) {
+    return `${hours}小时${minutes % 60}分钟`;
+  } else {
+    return `${minutes}分钟`;
+  }
+}
 
 // 手动分配充电桩
 router.post('/queue/:queueId/assign', async (req: Request, res: Response) => {
@@ -436,50 +434,70 @@ router.get('/records', async (req: Request, res: Response) => {
 // 获取系统统计数据
 router.get('/statistics', async (req: Request, res: Response) => {
   try {
-    const days = parseInt(req.query.days as string) || 7;
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-    startDate.setHours(0, 0, 0, 0);
+    // 获取今日、本周、本月的统计数据
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const thisWeekStart = new Date(today);
+    thisWeekStart.setDate(today.getDate() - today.getDay());
+    
+    const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    // 获取日度统计数据
-    const dailyStats = await prisma.chargingRecord.groupBy({
-      by: ['startTime'],
-      _count: {
-        id: true
-      },
-      _sum: {
-        totalFee: true,
-        actualAmount: true
-      },
-      where: {
-        createdAt: {
-          gte: startDate
+    // 获取今日统计
+    const [todayStats, thisWeekStats, thisMonthStats] = await Promise.all([
+      prisma.chargingRecord.aggregate({
+        _count: { id: true },
+        _sum: { 
+          totalFee: true,
+          actualAmount: true 
         },
-        status: 'COMPLETED'
-      }
-    });
-
-    // 获取充电模式统计
-    const modeStats = await prisma.queueRecord.groupBy({
-      by: ['chargingMode'],
-      _count: {
-        id: true
-      },
-      where: {
-        createdAt: {
-          gte: startDate
+        where: {
+          createdAt: { gte: today },
+          status: 'COMPLETED'
         }
-      }
-    });
+      }),
+      prisma.chargingRecord.aggregate({
+        _count: { id: true },
+        _sum: { 
+          totalFee: true,
+          actualAmount: true 
+        },
+        where: {
+          createdAt: { gte: thisWeekStart },
+          status: 'COMPLETED'
+        }
+      }),
+      prisma.chargingRecord.aggregate({
+        _count: { id: true },
+        _sum: { 
+          totalFee: true,
+          actualAmount: true 
+        },
+        where: {
+          createdAt: { gte: thisMonthStart },
+          status: 'COMPLETED'
+        }
+      })
+    ]);
 
     res.json({
       success: true,
       data: {
-        dailyStats,
-        modeStats: modeStats.reduce((acc, item) => {
-          acc[item.chargingMode] = item._count.id;
-          return acc;
-        }, {} as Record<string, number>)
+        today: {
+          chargingCount: todayStats._count.id || 0,
+          powerConsumption: todayStats._sum.actualAmount || 0,
+          revenue: todayStats._sum.totalFee || 0
+        },
+        thisWeek: {
+          chargingCount: thisWeekStats._count.id || 0,
+          powerConsumption: thisWeekStats._sum.actualAmount || 0,
+          revenue: thisWeekStats._sum.totalFee || 0
+        },
+        thisMonth: {
+          chargingCount: thisMonthStats._count.id || 0,
+          powerConsumption: thisMonthStats._sum.actualAmount || 0,
+          revenue: thisMonthStats._sum.totalFee || 0
+        }
       }
     });
 

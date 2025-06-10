@@ -15,6 +15,8 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { chargingAPI, userAPI, apiUtils } from '../services/api';
+import { authService } from '../services/auth';
+import { webSocketService } from '../services/websocket';
 
 const { Header, Sider, Content } = Layout;
 const { Option } = Select;
@@ -70,17 +72,72 @@ const UserDashboard: React.FC = () => {
   });
   
   const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const user = authService.getCurrentUser('USER');
+
+  // 检查认证状态
+  useEffect(() => {
+    if (!authService.isAuthenticated('USER')) {
+      navigate('/');
+      return;
+    }
+
+    // 连接WebSocket
+    if (user && !webSocketService.isSocketConnected()) {
+      webSocketService.connect(user.id, user.role);
+    }
+  }, [navigate, user]);
+
+  // WebSocket事件监听
+  useEffect(() => {
+    const handleQueueUpdate = (event: CustomEvent) => {
+      console.log('队列状态更新:', event.detail);
+      loadQueueStatus();
+      // 同时更新统计数据，因为队列变化可能影响统计
+      loadUserStats();
+    };
+
+    const handleChargingStart = (event: CustomEvent) => {
+      console.log('充电开始:', event.detail);
+      // 充电开始时刷新所有数据
+      loadQueueStatus();
+      loadUserStats();
+      if (activeMenu === 'records') {
+        loadChargingRecords();
+      }
+    };
+
+    const handleChargingComplete = (event: CustomEvent) => {
+      console.log('充电完成:', event.detail);
+      // 充电完成时刷新所有数据
+      loadQueueStatus();
+      loadUserStats();
+      if (activeMenu === 'records') {
+        loadChargingRecords();
+      }
+    };
+
+    window.addEventListener('queueUpdate', handleQueueUpdate as EventListener);
+    window.addEventListener('chargingStart', handleChargingStart as EventListener);
+    window.addEventListener('chargingComplete', handleChargingComplete as EventListener);
+
+    return () => {
+      window.removeEventListener('queueUpdate', handleQueueUpdate as EventListener);
+      window.removeEventListener('chargingStart', handleChargingStart as EventListener);
+      window.removeEventListener('chargingComplete', handleChargingComplete as EventListener);
+    };
+  }, [activeMenu]);
 
   // 页面加载时获取数据
   useEffect(() => {
     loadInitialData();
-    // 设置定时刷新队列状态
+    // 设置定时刷新队列状态，频率适中
     const interval = setInterval(() => {
-      if (activeMenu === 'queue' || activeMenu === 'dashboard') {
-        loadQueueStatus();
+      loadQueueStatus();
+      // 如果在概览面板，也刷新统计数据
+      if (activeMenu === 'dashboard') {
+        loadUserStats();
       }
-    }, 10000); // 每10秒刷新一次
+    }, 15000); // 每15秒刷新一次（减少频率，因为有WebSocket实时更新）
 
     return () => clearInterval(interval);
   }, []);
@@ -98,15 +155,23 @@ const UserDashboard: React.FC = () => {
       case 'records':
         loadChargingRecords();
         break;
+      case 'charging':
+        loadQueueStatus(); // 充电服务页面也需要队列状态
+        break;
     }
   }, [activeMenu]);
 
   // 加载初始数据
   const loadInitialData = async () => {
-    await Promise.all([
-      loadUserStats(),
-      loadQueueStatus()
-    ]);
+    try {
+      // 并行加载数据以提高性能
+      await Promise.all([
+        loadUserStats(),
+        loadQueueStatus()
+      ]);
+    } catch (error) {
+      console.error('加载初始数据失败:', error);
+    }
   };
 
   // 加载用户统计数据
@@ -117,6 +182,7 @@ const UserDashboard: React.FC = () => {
       setUserStats(stats);
     } catch (error) {
       console.error('获取用户统计失败:', error);
+      // 不显示错误消息，避免干扰用户体验
     }
   };
 
@@ -128,6 +194,7 @@ const UserDashboard: React.FC = () => {
       setQueueInfo(queueData);
     } catch (error) {
       console.error('获取排队状态失败:', error);
+      // 不显示错误消息，避免干扰用户体验
     }
   };
 
@@ -161,8 +228,11 @@ const UserDashboard: React.FC = () => {
       okText: '确认',
       cancelText: '取消',
       onOk: () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        // 断开WebSocket连接
+        webSocketService.disconnect();
+        
+        // 使用新的认证服务退出
+        authService.logout('USER');
         message.success('已退出登录');
         navigate('/');
       }
@@ -178,13 +248,20 @@ const UserDashboard: React.FC = () => {
         chargingMode: values.chargingMode
       });
       
-      const result = apiUtils.handleResponse(response);
+      apiUtils.handleResponse(response);
       message.success('充电请求已提交，请等待调度');
       setChargingRequestVisible(false);
       
-      // 刷新队列状态
-      loadQueueStatus();
-      loadUserStats();
+      // 立即刷新所有相关数据，确保一致性
+      await Promise.all([
+        loadQueueStatus(),
+        loadUserStats()
+      ]);
+      
+      // 如果当前在充电记录页面，也刷新记录
+      if (activeMenu === 'records') {
+        loadChargingRecords();
+      }
     } catch (error) {
       message.error(apiUtils.handleError(error));
     } finally {
@@ -200,13 +277,22 @@ const UserDashboard: React.FC = () => {
       title: '确认取消',
       content: '您确定要取消当前的充电请求吗？',
       okText: '确认',
-      cancelText: '返回',
+      cancelText: '取消',
       onOk: async () => {
         try {
           await chargingAPI.cancelRequest(queueInfo.queueNumber!);
           message.success('充电请求已取消');
-          loadQueueStatus();
-          loadUserStats();
+          
+          // 立即刷新所有相关数据
+          await Promise.all([
+            loadQueueStatus(),
+            loadUserStats()
+          ]);
+          
+          // 如果当前在充电记录页面，也刷新记录
+          if (activeMenu === 'records') {
+            loadChargingRecords();
+          }
         } catch (error) {
           message.error(apiUtils.handleError(error));
         }
@@ -669,7 +755,7 @@ const UserDashboard: React.FC = () => {
         />
 
         {/* 侧边栏底部用户信息 */}
-        {!collapsed && (
+        {!collapsed && user && (
           <div className="absolute bottom-4 left-4 right-4">
             <Card size="small" className="shadow-sm">
               <div className="flex items-center space-x-3">
@@ -703,11 +789,16 @@ const UserDashboard: React.FC = () => {
           </div>
 
           <div className="flex items-center space-x-4">
-            <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-              <div className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 px-3 py-2 rounded-lg transition-colors">
-                <Avatar icon={<UserOutlined />} size="small" className="bg-blue-500" />
-                <span className="text-gray-700 font-medium">{user.username}</span>
-              </div>
+            <span className="text-gray-600">欢迎您，{user?.username || '用户'}</span>
+            <Dropdown
+              menu={{ items: userMenuItems }}
+              trigger={['click']}
+              placement="bottomRight"
+            >
+              <Avatar 
+                icon={<UserOutlined />} 
+                className="bg-blue-500 cursor-pointer hover:bg-blue-600 transition-colors"
+              />
             </Dropdown>
           </div>
         </Header>

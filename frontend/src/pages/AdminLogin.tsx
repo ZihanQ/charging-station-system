@@ -1,150 +1,127 @@
-import React, { useState } from 'react';
-import { Form, Input, Button, Card, message, Alert } from 'antd';
-import { LockOutlined, MailOutlined, SettingOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Form, Input, Button, Card, message, Typography, Divider } from 'antd';
+import { UserOutlined, LockOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { Link, useNavigate } from 'react-router-dom';
 import { authAPI, apiUtils } from '../services/api';
+import { authService } from '../services/auth';
+import { webSocketService } from '../services/websocket';
 
-interface AdminLoginForm {
-  email: string;
-  password: string;
-}
+const { Title, Text } = Typography;
 
 const AdminLogin: React.FC = () => {
   const [loading, setLoading] = useState(false);
-  const [loginError, setLoginError] = useState('');
   const navigate = useNavigate();
 
-  const onLogin = async (values: AdminLoginForm) => {
-    setLoading(true);
-    setLoginError('');
+  useEffect(() => {
+    // 迁移旧的存储格式
+    authService.migrateOldStorage();
     
+    // 移除自动跳转逻辑，让管理员可以选择重新登录
+  }, [navigate]);
+
+  const onFinish = async (values: { username: string; password: string }) => {
+    setLoading(true);
     try {
-      const response = await authAPI.adminLogin(values);
+      const response = await authAPI.adminLogin({
+        email: values.username,  // 假设用户名实际上是邮箱
+        password: values.password
+      });
       const data = apiUtils.handleResponse<{
+        user: { id: string; username: string; email: string; role: 'USER' | 'ADMIN' };
         token: string;
-        user: {
-          id: string;
-          username: string;
-          email: string;
-          phoneNumber?: string;
-          role: string;
-        };
       }>(response);
-      
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      message.success('管理员登录成功！');
+
+      if (data.user.role !== 'ADMIN') {
+        message.error('您没有管理员权限');
+        return;
+      }
+
+      // 使用新的认证服务保存数据
+      authService.saveAuthData({ user: data.user, token: data.token });
+
+      // 连接WebSocket
+      webSocketService.connect(data.user.id, data.user.role);
+
+      message.success('登录成功！');
       navigate('/admin/dashboard');
-    } catch (error: any) {
-      const errorMessage = apiUtils.handleError(error);
-      setLoginError(errorMessage);
-      message.error(errorMessage);
+    } catch (error) {
+      message.error(apiUtils.handleError(error));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-indigo-50 to-blue-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* 顶部标识 */}
+        {/* Logo和标题 */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full mb-4 shadow-lg">
-            <SettingOutlined className="text-3xl text-white" />
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-purple-500 text-white rounded-full mb-4">
+            <ThunderboltOutlined className="text-2xl" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">
-            管理员登录
-          </h1>
-          <p className="text-gray-600">充电桩系统管理中心</p>
+          <Title level={2} className="text-gray-800 mb-2">充电桩管理系统</Title>
+          <Text className="text-gray-600">管理员登录</Text>
         </div>
 
-        <Card 
-          className="shadow-2xl border-0 rounded-2xl backdrop-blur-sm bg-white/95"
-          bodyStyle={{ padding: '2rem' }}
-        >
-          {loginError && (
-            <Alert
-              message={loginError}
-              type="error"
-              showIcon
-              className="mb-6"
-              closable
-              onClose={() => setLoginError('')}
-            />
-          )}
-
+        {/* 登录表单 */}
+        <Card className="shadow-lg border-0">
           <Form
             name="adminLogin"
-            onFinish={onLogin}
-            autoComplete="off"
+            onFinish={onFinish}
             layout="vertical"
             size="large"
           >
             <Form.Item
-              label="管理员邮箱"
-              name="email"
-              rules={[
-                { required: true, message: '请输入管理员邮箱' },
-                { type: 'email', message: '请输入有效的邮箱地址' }
-              ]}
+              label="管理员账号"
+              name="username"
+              rules={[{ required: true, message: '请输入管理员账号!' }]}
             >
               <Input 
-                prefix={<MailOutlined className="text-gray-400" />} 
-                placeholder="请输入管理员邮箱"
-                className="rounded-lg h-12"
+                prefix={<UserOutlined className="text-gray-400" />} 
+                placeholder="请输入管理员账号"
+                className="rounded-lg"
               />
             </Form.Item>
 
             <Form.Item
-              label="管理员密码"
+              label="密码"
               name="password"
-              rules={[{ required: true, message: '请输入管理员密码' }]}
+              rules={[{ required: true, message: '请输入密码!' }]}
             >
               <Input.Password 
                 prefix={<LockOutlined className="text-gray-400" />} 
-                placeholder="请输入管理员密码"
-                className="rounded-lg h-12"
+                placeholder="请输入密码"
+                className="rounded-lg"
               />
             </Form.Item>
 
-            <Form.Item className="mb-6">
+            <Form.Item className="mb-4">
               <Button 
                 type="primary" 
                 htmlType="submit" 
                 loading={loading}
-                className="w-full h-12 text-lg font-medium rounded-lg bg-gradient-to-r from-purple-500 to-indigo-600 border-0 hover:from-purple-600 hover:to-indigo-700 shadow-lg"
+                className="w-full h-12 text-lg font-medium rounded-lg bg-purple-500 border-purple-500 hover:bg-purple-600 hover:border-purple-600"
               >
-                {loading ? '登录中...' : '登录管理系统'}
+                登录
               </Button>
             </Form.Item>
           </Form>
 
-          <div className="text-center pt-4 border-t border-gray-100">
-            <Button 
-              type="link" 
-              onClick={() => navigate('/')}
-              className="text-purple-600 hover:text-purple-700 font-medium"
-            >
-              ← 返回用户登录
-            </Button>
+          <Divider className="my-6" />
+
+          <div className="text-center">
+            <Text className="text-gray-600">普通用户？ </Text>
+            <Link to="/" className="text-purple-500 hover:text-purple-600 font-medium">
+              用户登录
+            </Link>
           </div>
         </Card>
 
-        {/* 测试账号信息 */}
-        <div className="mt-6 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-100">
-          <h3 className="text-sm font-semibold text-purple-800 mb-2 flex items-center">
-            <SettingOutlined className="mr-2" />
-            测试账号信息
-          </h3>
-          <div className="text-sm text-purple-700 space-y-1">
-            <p><span className="font-medium">邮箱:</span> admin@charging.com</p>
-            <p><span className="font-medium">密码:</span> admin123</p>
-          </div>
-        </div>
-
-        {/* 底部版权 */}
-        <div className="text-center mt-6 text-gray-500 text-sm">
-          <p>© 2024 智能充电桩系统 - 管理中心</p>
+        {/* 管理员提示 */}
+        <div className="mt-8 text-center">
+          <Text className="text-gray-500 text-sm">
+            🔒 管理员专用入口 • 系统管理 • 数据监控
+          </Text>
         </div>
       </div>
     </div>
