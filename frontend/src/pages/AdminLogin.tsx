@@ -1,39 +1,47 @@
 import React, { useState } from 'react';
-import { Form, Input, Button, Card, message } from 'antd';
+import { Form, Input, Button, Card, message, Alert } from 'antd';
 import { LockOutlined, MailOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
+interface AdminLoginForm {
+  email: string;
+  password: string;
+}
+
 const AdminLogin: React.FC = () => {
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
   const navigate = useNavigate();
 
-  const onLogin = async (values: any) => {
+  const onLogin = async (values: AdminLoginForm) => {
     setLoading(true);
+    setLoginError('');
+    
     try {
       const response = await axios.post('/api/auth/admin/login', values);
       if (response.data.success) {
         localStorage.setItem('token', response.data.data.token);
         localStorage.setItem('user', JSON.stringify(response.data.data.user));
-        message.success('管理员登录成功');
+        message.success('管理员登录成功！');
         navigate('/admin/dashboard');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.message || '登录失败');
+      const errorMessage = error.response?.data?.message || '登录失败，请检查账号密码';
+      setLoginError(errorMessage);
+      message.error(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-500 via-purple-600 to-purple-700 flex items-center justify-center p-4">
-      <Card 
-        className="w-full max-w-md shadow-2xl border-0 rounded-2xl"
-        bodyStyle={{ padding: '2rem' }}
-      >
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-indigo-50 to-blue-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        {/* 顶部标识 */}
         <div className="text-center mb-8">
-          <div className="mb-4">
-            <SettingOutlined className="text-6xl text-purple-500" />
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full mb-4 shadow-lg">
+            <SettingOutlined className="text-3xl text-white" />
           </div>
           <h1 className="text-3xl font-bold text-gray-800 mb-2">
             管理员登录
@@ -41,70 +49,95 @@ const AdminLogin: React.FC = () => {
           <p className="text-gray-600">充电桩系统管理中心</p>
         </div>
 
-        <Form
-          name="adminLogin"
-          onFinish={onLogin}
-          autoComplete="off"
-          layout="vertical"
+        <Card 
+          className="shadow-2xl border-0 rounded-2xl backdrop-blur-sm bg-white/95"
+          bodyStyle={{ padding: '2rem' }}
         >
-          <Form.Item
-            label="管理员邮箱"
-            name="email"
-            rules={[
-              { required: true, message: '请输入管理员邮箱' },
-              { type: 'email', message: '请输入有效邮箱' }
-            ]}
-          >
-            <Input 
-              prefix={<MailOutlined />} 
-              placeholder="请输入管理员邮箱"
-              size="large"
+          {loginError && (
+            <Alert
+              message={loginError}
+              type="error"
+              showIcon
+              className="mb-6"
+              closable
+              onClose={() => setLoginError('')}
             />
-          </Form.Item>
+          )}
 
-          <Form.Item
-            label="管理员密码"
-            name="password"
-            rules={[{ required: true, message: '请输入管理员密码' }]}
+          <Form
+            name="adminLogin"
+            onFinish={onLogin}
+            autoComplete="off"
+            layout="vertical"
+            size="large"
           >
-            <Input.Password 
-              prefix={<LockOutlined />} 
-              placeholder="请输入管理员密码"
-              size="large"
-            />
-          </Form.Item>
-
-          <Form.Item>
-            <Button 
-              type="primary" 
-              htmlType="submit" 
-              loading={loading}
-              size="large"
-              className="w-full h-12 text-lg font-medium bg-purple-500 hover:bg-purple-600 border-purple-500 hover:border-purple-600"
+            <Form.Item
+              label="管理员邮箱"
+              name="email"
+              rules={[
+                { required: true, message: '请输入管理员邮箱' },
+                { type: 'email', message: '请输入有效的邮箱地址' }
+              ]}
             >
-              登录管理系统
+              <Input 
+                prefix={<MailOutlined className="text-gray-400" />} 
+                placeholder="请输入管理员邮箱"
+                className="rounded-lg h-12"
+              />
+            </Form.Item>
+
+            <Form.Item
+              label="管理员密码"
+              name="password"
+              rules={[{ required: true, message: '请输入管理员密码' }]}
+            >
+              <Input.Password 
+                prefix={<LockOutlined className="text-gray-400" />} 
+                placeholder="请输入管理员密码"
+                className="rounded-lg h-12"
+              />
+            </Form.Item>
+
+            <Form.Item className="mb-6">
+              <Button 
+                type="primary" 
+                htmlType="submit" 
+                loading={loading}
+                className="w-full h-12 text-lg font-medium rounded-lg bg-gradient-to-r from-purple-500 to-indigo-600 border-0 hover:from-purple-600 hover:to-indigo-700 shadow-lg"
+              >
+                {loading ? '登录中...' : '登录管理系统'}
+              </Button>
+            </Form.Item>
+          </Form>
+
+          <div className="text-center pt-4 border-t border-gray-100">
+            <Button 
+              type="link" 
+              onClick={() => navigate('/')}
+              className="text-purple-600 hover:text-purple-700 font-medium"
+            >
+              ← 返回用户登录
             </Button>
-          </Form.Item>
-        </Form>
+          </div>
+        </Card>
 
-        <div className="text-center mt-6">
-          <Button 
-            type="link" 
-            onClick={() => navigate('/')}
-            className="text-purple-500 hover:text-purple-600"
-          >
-            ← 返回用户登录
-          </Button>
+        {/* 测试账号信息 */}
+        <div className="mt-6 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-100">
+          <h3 className="text-sm font-semibold text-purple-800 mb-2 flex items-center">
+            <SettingOutlined className="mr-2" />
+            测试账号信息
+          </h3>
+          <div className="text-sm text-purple-700 space-y-1">
+            <p><span className="font-medium">邮箱:</span> admin@charging.com</p>
+            <p><span className="font-medium">密码:</span> admin123</p>
+          </div>
         </div>
 
-        <div className="mt-8 p-4 bg-gray-50 rounded-lg">
-          <h3 className="text-sm font-medium text-gray-700 mb-2">测试账号</h3>
-          <p className="text-xs text-gray-600">
-            邮箱: admin@charging.com<br />
-            密码: admin123
-          </p>
+        {/* 底部版权 */}
+        <div className="text-center mt-6 text-gray-500 text-sm">
+          <p>© 2024 智能充电桩系统 - 管理中心</p>
         </div>
-      </Card>
+      </div>
     </div>
   );
 };
