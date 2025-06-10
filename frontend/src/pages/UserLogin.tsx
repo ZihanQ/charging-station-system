@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Form, Input, Button, Card, message, Tabs, Alert } from 'antd';
 import { UserOutlined, LockOutlined, MailOutlined, PhoneOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { authAPI, apiUtils } from '../services/api';
 
 const { TabPane } = Tabs;
 
@@ -30,15 +30,24 @@ const UserLogin: React.FC = () => {
     setLoginError('');
     
     try {
-      const response = await axios.post('/api/auth/login', values);
-      if (response.data.success) {
-        localStorage.setItem('token', response.data.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.data.user));
-        message.success('登录成功！');
-        navigate('/user');
-      }
+      const response = await authAPI.login(values);
+      const data = apiUtils.handleResponse<{
+        token: string;
+        user: {
+          id: string;
+          username: string;
+          email: string;
+          phoneNumber?: string;
+          role: string;
+        };
+      }>(response);
+      
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      message.success('登录成功！');
+      navigate('/user');
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || '登录失败，请稍后重试';
+      const errorMessage = apiUtils.handleError(error);
       setLoginError(errorMessage);
       message.error(errorMessage);
     } finally {
@@ -51,13 +60,13 @@ const UserLogin: React.FC = () => {
     setRegisterError('');
     
     try {
-      const response = await axios.post('/api/auth/register', values);
-      if (response.data.success) {
-        message.success('注册成功！请登录');
-        setActiveTab('login');
-      }
+      const response = await authAPI.register(values);
+      apiUtils.handleResponse(response);
+      
+      message.success('注册成功！请登录');
+      setActiveTab('login');
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || '注册失败，请稍后重试';
+      const errorMessage = apiUtils.handleError(error);
       setRegisterError(errorMessage);
       message.error(errorMessage);
     } finally {

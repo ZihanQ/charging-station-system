@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Form, Input, Button, Card, message, Alert } from 'antd';
 import { LockOutlined, MailOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { authAPI, apiUtils } from '../services/api';
 
 interface AdminLoginForm {
   email: string;
@@ -19,15 +19,24 @@ const AdminLogin: React.FC = () => {
     setLoginError('');
     
     try {
-      const response = await axios.post('/api/auth/admin/login', values);
-      if (response.data.success) {
-        localStorage.setItem('token', response.data.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.data.user));
-        message.success('管理员登录成功！');
-        navigate('/admin/dashboard');
-      }
+      const response = await authAPI.adminLogin(values);
+      const data = apiUtils.handleResponse<{
+        token: string;
+        user: {
+          id: string;
+          username: string;
+          email: string;
+          phoneNumber?: string;
+          role: string;
+        };
+      }>(response);
+      
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      message.success('管理员登录成功！');
+      navigate('/admin/dashboard');
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || '登录失败，请检查账号密码';
+      const errorMessage = apiUtils.handleError(error);
       setLoginError(errorMessage);
       message.error(errorMessage);
     } finally {

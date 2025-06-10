@@ -9,6 +9,7 @@ import AdminLogin from './pages/AdminLogin';
 import UserDashboard from './pages/UserDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import ChargingQueue from './pages/ChargingQueue';
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
@@ -18,8 +19,22 @@ function App() {
           <Routes>
             <Route path="/" element={<UserLogin />} />
             <Route path="/admin" element={<AdminLogin />} />
-            <Route path="/user/*" element={<UserDashboard />} />
-            <Route path="/admin/*" element={<AdminDashboard />} />
+            <Route 
+              path="/user/*" 
+              element={
+                <ProtectedRoute requiredRole="USER">
+                  <UserDashboard />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/admin/*" 
+              element={
+                <ProtectedRoute requiredRole="ADMIN">
+                  <AdminDashboard />
+                </ProtectedRoute>
+              } 
+            />
             <Route path="/queue" element={<ChargingQueue />} />
           </Routes>
         </div>
