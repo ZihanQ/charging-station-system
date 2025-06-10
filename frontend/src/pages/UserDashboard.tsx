@@ -219,52 +219,35 @@ const UserDashboard: React.FC = () => {
       title: '详单编号', 
       dataIndex: 'recordNumber', 
       key: 'recordNumber',
-      width: 120
-    },
-    { 
-      title: '充电桩', 
-      dataIndex: 'chargingPile', 
-      key: 'chargingPile',
-      width: 80,
-      render: (text: string) => (
-        <Badge color="blue" text={`${text}桩`} />
+      width: 200,
+      render: (text: string, record: ChargingRecord) => (
+        <Button 
+          type="link" 
+          onClick={() => navigate(`/record/${record.id}`)}
+          className="p-0 h-auto font-mono text-blue-600 hover:text-blue-800"
+        >
+          {text}
+        </Button>
       )
     },
     { 
-      title: '充电量(度)', 
-      dataIndex: 'actualAmount', 
-      key: 'actualAmount',
-      width: 100,
-      render: (value: number) => `${value}度`
-    },
-    { 
-      title: '开始时间', 
-      dataIndex: 'startTime', 
-      key: 'startTime',
-      width: 150,
-      render: (value: string) => new Date(value).toLocaleString()
-    },
-    { 
-      title: '结束时间', 
-      dataIndex: 'endTime', 
-      key: 'endTime',
-      width: 150,
-      render: (value: string) => value ? new Date(value).toLocaleString() : '-'
-    },
-    { 
-      title: '总费用(元)', 
-      dataIndex: 'totalFee', 
-      key: 'totalFee',
-      width: 100,
-      render: (value: number) => (
-        <span className="font-semibold text-green-600">¥{value.toFixed(2)}</span>
-      )
+      title: '创建时间', 
+      dataIndex: 'createdAt', 
+      key: 'createdAt',
+      width: 180,
+      render: (value: string) => new Date(value).toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
     },
     { 
       title: '状态', 
       dataIndex: 'status', 
       key: 'status',
-      width: 80,
+      width: 120,
       render: (status: string) => {
         const statusMap = {
           'COMPLETED': { status: 'success', text: '已完成' },
@@ -276,6 +259,20 @@ const UserDashboard: React.FC = () => {
         const statusInfo = statusMap[status as keyof typeof statusMap] || { status: 'default', text: status };
         return <Badge status={statusInfo.status as any} text={statusInfo.text} />;
       }
+    },
+    { 
+      title: '操作', 
+      key: 'action',
+      width: 120,
+      render: (_: any, record: ChargingRecord) => (
+        <Button 
+          type="primary" 
+          size="small"
+          onClick={() => navigate(`/record/${record.id}`)}
+        >
+          查看详情
+        </Button>
+      )
     }
   ];
 

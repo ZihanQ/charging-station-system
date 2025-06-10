@@ -9,6 +9,7 @@ import AdminLogin from './pages/AdminLogin';
 import UserDashboard from './pages/UserDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import ChargingQueue from './pages/ChargingQueue';
+import ChargingRecordDetail from './pages/ChargingRecordDetail';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
@@ -36,6 +37,14 @@ function App() {
               } 
             />
             <Route path="/queue" element={<ChargingQueue />} />
+            <Route 
+              path="/record/:recordId" 
+              element={
+                <ProtectedRoute requiredRole="USER">
+                  <ChargingRecordDetail />
+                </ProtectedRoute>
+              } 
+            />
           </Routes>
         </div>
       </Router>

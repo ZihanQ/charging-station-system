@@ -96,6 +96,15 @@ export const chargingAPI = {
 
   // 获取充电桩状态
   getPileStatus: () => api.get('/charging/piles'),
+
+  // 获取充电记录详情
+  getRecordDetail: (recordId: string) => api.get(`/charging/records/${recordId}`),
+
+  // 修改充电请求
+  updateRequest: (recordId: string, data: {
+    chargingMode: 'FAST' | 'SLOW';
+    requestedAmount: number;
+  }) => api.patch(`/charging/records/${recordId}/request`, data),
 };
 
 // 管理员相关 API
