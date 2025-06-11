@@ -45,29 +45,94 @@ router.post('/request', async (req, res) => {
                 message: '您已有进行中的充电请求，请等待完成后再提交新的请求'
             });
         }
-        // 生成排队号码
-        const queueNumber = await generateQueueNumber(chargingMode);
-        // 获取队列位置
-        const position = await getQueuePosition(chargingMode);
-        // 创建排队记录
-        const queueRecord = await prisma.queueRecord.create({
-            data: {
-                queueNumber,
-                userId,
-                batteryCapacity,
-                requestedAmount,
-                chargingMode,
-                position,
-                status: 'WAITING'
-            },
-            include: {
-                user: {
+        
+        // 使用事务确保队列号生成和记录创建的原子性
+        const queueRecord = await prisma.$transaction(async (tx) => {
+            // 生成排队号码 - 使用重试机制处理并发
+            const prefix = chargingMode === 'FAST' ? 'F' : 'T';
+            let queueNumber;
+            let attempts = 0;
+            const maxAttempts = 10;
+            
+            while (attempts < maxAttempts) {
+                // 查找当天该类型的所有队列号
+                const todayRecords = await tx.queueRecord.findMany({
+                    where: {
+                        queueNumber: {
+                            startsWith: prefix
+                        },
+                        createdAt: {
+                            gte: new Date(new Date().setHours(0, 0, 0, 0))
+                        }
+                    },
                     select: {
-                        username: true,
-                        email: true
+                        queueNumber: true
+                    }
+                });
+                
+                // 找到最大的数字部分
+                let maxNumber = 0;
+                const usedNumbers = new Set();
+                
+                for (const record of todayRecords) {
+                    const numberPart = parseInt(record.queueNumber.substring(1)) || 0;
+                    usedNumbers.add(numberPart);
+                    if (numberPart > maxNumber) {
+                        maxNumber = numberPart;
                     }
                 }
+                
+                // 寻找第一个未使用的数字（从1开始）
+                let nextNumber = 1;
+                while (usedNumbers.has(nextNumber)) {
+                    nextNumber++;
+                }
+                
+                queueNumber = `${prefix}${nextNumber}`;
+                
+                // 检查这个号码是否真的不存在（双重检查）
+                const existing = await tx.queueRecord.findUnique({
+                    where: {
+                        queueNumber: queueNumber
+                    }
+                });
+                
+                if (!existing) {
+                    break; // 找到了可用的号码
+                }
+                
+                attempts++;
+                
+                // 如果多次尝试仍然冲突，添加时间戳
+                if (attempts === maxAttempts) {
+                    const timestamp = Date.now().toString().slice(-4);
+                    queueNumber = `${prefix}${maxNumber + 1}_${timestamp}`;
+                }
             }
+            
+            // 获取队列位置
+            const position = await getQueuePosition(chargingMode);
+            
+            // 创建排队记录
+            return await tx.queueRecord.create({
+                data: {
+                    queueNumber,
+                    userId,
+                    batteryCapacity,
+                    requestedAmount,
+                    chargingMode,
+                    position,
+                    status: 'WAITING'
+                },
+                include: {
+                    user: {
+                        select: {
+                            username: true,
+                            email: true
+                        }
+                    }
+                }
+            });
         });
         res.status(201).json({
             success: true,
@@ -75,7 +140,7 @@ router.post('/request', async (req, res) => {
             data: {
                 queueNumber: queueRecord.queueNumber,
                 position: queueRecord.position,
-                estimatedTime: calculateEstimatedWaitTime(chargingMode, position),
+                estimatedTime: calculateEstimatedWaitTime(chargingMode, queueRecord.position),
                 status: queueRecord.status
             }
         });
@@ -290,23 +355,6 @@ router.get('/piles', async (req, res) => {
         });
     }
 });
-// 辅助函数：生成排队号码
-async function generateQueueNumber(chargingMode) {
-    const prefix = chargingMode === 'FAST' ? 'F' : 'T';
-    const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
-    // 获取今天已生成的同类型排队号码数量
-    const count = await prisma.queueRecord.count({
-        where: {
-            queueNumber: {
-                startsWith: prefix
-            },
-            createdAt: {
-                gte: new Date(new Date().setHours(0, 0, 0, 0))
-            }
-        }
-    });
-    return `${prefix}${count + 1}`;
-}
 // 辅助函数：获取队列位置
 async function getQueuePosition(chargingMode) {
     const count = await prisma.queueRecord.count({
