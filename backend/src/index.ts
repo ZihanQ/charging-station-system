@@ -11,10 +11,15 @@ import authRoutes from './routes/auth';
 import userRoutes from './routes/user';
 import adminRoutes from './routes/admin';
 import chargingRoutes from './routes/charging';
+import virtualTimeRoutes from './routes/virtualTime';
+import testScriptRoutes from './routes/testScript';
+import testUsersRoutes from './routes/testUsers';
+
 
 // 导入服务
 import { SocketService } from './services/socketService';
 import { ChargingSystemService } from './services/chargingSystemService';
+import { testScriptService } from './services/testScriptService';
 
 // 加载环境变量
 dotenv.config();
@@ -45,6 +50,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/charging', chargingRoutes);
+app.use('/api/virtual-time', virtualTimeRoutes);
+app.use('/api/test-script', testScriptRoutes);
+app.use('/api/test-users', testUsersRoutes);
 
 // 健康检查
 app.get('/api/health', (req, res) => {
@@ -81,6 +89,10 @@ server.listen(PORT, () => {
   // 初始化充电系统
   chargingSystemService.initialize().then(() => {
     console.log('⚡ 充电调度系统已初始化');
+    
+    // 创建默认测试场景
+    testScriptService.createDefaultTestScenarios();
+    console.log('🧪 测试脚本服务已启动');
   }).catch(console.error);
 });
 

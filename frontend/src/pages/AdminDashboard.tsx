@@ -13,12 +13,15 @@ import {
   UnorderedListOutlined,
   ReloadOutlined,
   ClockCircleOutlined,
-  StopOutlined
+  StopOutlined,
+  ExperimentOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { adminAPI, apiUtils } from '../services/api';
 import { authService } from '../services/auth';
 import { webSocketService } from '../services/websocket';
+import VirtualTimeControl from '../components/VirtualTimeControl';
+import TestScriptManager from '../components/TestScriptManager';
 
 const { Header, Sider, Content } = Layout;
 
@@ -494,6 +497,16 @@ const AdminDashboard: React.FC = () => {
       key: 'reports',
       icon: <BarChartOutlined />,
       label: '统计报告'
+    },
+    {
+      key: 'virtual-time',
+      icon: <ClockCircleOutlined />,
+      label: '虚拟时间'
+    },
+    {
+      key: 'test-scripts',
+      icon: <ExperimentOutlined />,
+      label: '测试脚本'
     }
   ];
 
@@ -768,6 +781,12 @@ const AdminDashboard: React.FC = () => {
             </Row>
           </div>
         );
+
+      case 'virtual-time':
+        return <VirtualTimeControl />;
+
+      case 'test-scripts':
+        return <TestScriptManager />;
       
       default:
         return null;
@@ -780,6 +799,8 @@ const AdminDashboard: React.FC = () => {
       case 'piles': return '充电桩管理';
       case 'queue': return '排队管理';
       case 'reports': return '统计报告';
+      case 'virtual-time': return '虚拟时间控制';
+      case 'test-scripts': return '测试脚本管理';
       default: return '充电桩管理系统';
     }
   };
