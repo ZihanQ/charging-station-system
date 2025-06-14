@@ -78,10 +78,10 @@ export class ChargingSystemService {
       this.processQueue();
     }, 5000); // 每5秒检查一次
 
-    // 定时更新充电状态
+    // 定时更新充电状态 - 更频繁的检查以适应虚拟时间加速
     setInterval(() => {
       this.updateChargingStatus();
-    }, 10000); // 每10秒更新一次充电状态
+    }, 2000); // 每2秒更新一次充电状态，减少虚拟时间加速时的误差
   }
 
   // 处理排队调度
@@ -165,17 +165,26 @@ export class ChargingSystemService {
     // 生成充电详单编号
     const recordNumber = await this.generateRecordNumber();
     
+    // 获取充电桩信息以确定服务费率
+    const chargingPile = await this.prisma.chargingPile.findUnique({
+      where: { id: chargingPileId }
+    });
+    
+    if (!chargingPile) {
+      throw new Error('充电桩不存在');
+    }
+
     // 基于虚拟时间获取电价
     const currentTime = virtualTimeService.getCurrentTime();
     const electricityPrice = virtualTimeService.getElectricityPrice(currentTime);
-    const serviceFeeRate = 0.8; // 统一服务费率
+    const serviceFeeRate = 0.8; // 统一服务费率 0.8 元/度
 
     // 计算费用
     const chargingFee = queueRecord.requestedAmount * electricityPrice;
     const serviceFee = queueRecord.requestedAmount * serviceFeeRate;
     const totalFee = chargingFee + serviceFee;
 
-    console.log(`充电开始 - 时间: ${currentTime.toLocaleString('zh-CN')}, 时段: ${virtualTimeService.getTimeSegment(currentTime)}, 电价: ${electricityPrice}元/度`);
+    console.log(`充电开始 - 时间: ${currentTime.toLocaleString('zh-CN')}, 时段: ${virtualTimeService.getTimeSegment(currentTime)}, 电价: ${electricityPrice}元/度, 服务费: ${serviceFeeRate}元/度, 充电桩: ${chargingPile.name}(${chargingPile.power}kW)`);
 
     // 事务处理：更新排队记录状态并创建充电记录
     const chargingRecord = await this.prisma.$transaction(async (tx) => {
@@ -235,14 +244,27 @@ export class ChargingSystemService {
       });
 
       for (const record of chargingRecords) {
-        // 计算充电时长（分钟）- 使用虚拟时间
         const currentTime = virtualTimeService.getCurrentTime();
+        const powerKWH = record.chargingPile.power;
+        
+        // 计算理论充电完成时间
+        const theoreticalChargingTimeHours = record.requestedAmount / powerKWH;
+        const theoreticalEndTime = new Date(record.startTime.getTime() + theoreticalChargingTimeHours * 60 * 60 * 1000);
+        
+        // 检查是否应该完成充电（基于理论时间）
+        if (currentTime >= theoreticalEndTime) {
+          // 充电应该完成了，直接设置为完成状态
+          await this.completeChargingWithExactTime(record.id, theoreticalEndTime);
+          console.log(`充电精确完成 - 详单号: ${record.recordNumber}, 理论完成时间: ${theoreticalEndTime.toLocaleString('zh-CN')}, 充电时长: ${theoreticalChargingTimeHours.toFixed(2)}小时`);
+          continue;
+        }
+        
+        // 计算当前实际充电时长（分钟）
         const chargingTimeMinutes = Math.floor(
           (currentTime.getTime() - record.startTime.getTime()) / (1000 * 60)
         );
 
         // 根据充电桩功率计算实际充电量
-        const powerKWH = record.chargingPile.power;
         const actualAmount = Math.min(
           (chargingTimeMinutes / 60) * powerKWH,
           record.requestedAmount
@@ -250,7 +272,7 @@ export class ChargingSystemService {
 
         // 获取当前时段的电价
         const electricityPrice = virtualTimeService.getElectricityPrice(currentTime);
-        const serviceFeeRate = record.chargingPile.type === 'FAST' ? 0.5 : 0.3;
+        const serviceFeeRate = 0.8; // 统一服务费率 0.8 元/度
         
         // 计算费用
         const chargingFee = actualAmount * electricityPrice;
@@ -269,15 +291,84 @@ export class ChargingSystemService {
           }
         });
 
-        // 检查是否充电完成
-        if (actualAmount >= record.requestedAmount) {
-          await this.completeCharging(record.id);
-        }
-
-        console.log(`充电进度更新 - 详单号: ${record.recordNumber}, 实际充电量: ${actualAmount.toFixed(2)}度, 进度: ${Math.floor((actualAmount / record.requestedAmount) * 100)}%`);
+        console.log(`充电进度更新 - 详单号: ${record.recordNumber}, 充电时长: ${(chargingTimeMinutes/60).toFixed(2)}小时, 实际充电量: ${actualAmount.toFixed(2)}度, 进度: ${Math.floor((actualAmount / record.requestedAmount) * 100)}%, 理论完成时间: ${theoreticalEndTime.toLocaleString('zh-CN')}`);
       }
     } catch (error) {
       console.error('更新充电状态错误:', error);
+    }
+  }
+
+  // 精确完成充电（使用指定的结束时间）
+  private async completeChargingWithExactTime(recordId: string, endTime: Date) {
+    try {
+      const record = await this.prisma.chargingRecord.findUnique({
+        where: { id: recordId },
+        include: {
+          user: true,
+          chargingPile: true
+        }
+      });
+
+      if (!record) return;
+
+      // 计算精确的充电时长
+      const chargingTimeHours = (endTime.getTime() - record.startTime.getTime()) / (1000 * 60 * 60);
+      const actualAmount = record.requestedAmount; // 充电完成，实际充电量等于请求量
+      
+      // 获取结束时段的电价（用于最终费用计算）
+      const electricityPrice = virtualTimeService.getElectricityPrice(endTime);
+      const serviceFeeRate = 0.8; // 统一服务费率 0.8 元/度
+
+      // 重新计算实际费用
+      const actualChargingFee = actualAmount * electricityPrice;
+      const actualServiceFee = actualAmount * serviceFeeRate;
+      const actualTotalFee = actualChargingFee + actualServiceFee;
+
+      // 事务处理：完成充电并释放充电桩
+      await this.prisma.$transaction(async (tx) => {
+        // 更新充电记录为已完成
+        await tx.chargingRecord.update({
+          where: { id: recordId },
+          data: {
+            endTime: endTime,
+            actualAmount: actualAmount,
+            chargingTime: chargingTimeHours,
+            chargingFee: actualChargingFee,
+            serviceFee: actualServiceFee,
+            totalFee: actualTotalFee,
+            status: 'COMPLETED'
+          }
+        });
+
+        // 更新对应的排队记录为已完成
+        await tx.queueRecord.updateMany({
+          where: {
+            userId: record.userId,
+            chargingPileId: record.chargingPileId,
+            status: 'CHARGING'
+          },
+          data: {
+            status: 'COMPLETED'
+          }
+        });
+      });
+
+      // 通知用户充电完成
+      this.socketService.notifyUser(record.userId, {
+        type: 'charging_complete',
+        data: {
+          recordNumber: record.recordNumber,
+          chargingPile: record.chargingPile.name,
+          actualAmount: actualAmount,
+          totalFee: actualTotalFee,
+          chargingTime: chargingTimeHours,
+          message: '充电已完成'
+        }
+      });
+
+      console.log(`充电精确完成 - 详单号: ${record.recordNumber}, 充电桩: ${record.chargingPile.name}, 实际充电量: ${actualAmount}度, 充电时长: ${chargingTimeHours.toFixed(2)}小时, 总费用: ${actualTotalFee.toFixed(2)}元 (电费: ${actualChargingFee.toFixed(2)}元 + 服务费: ${actualServiceFee.toFixed(2)}元)`);
+    } catch (error) {
+      console.error('精确完成充电错误:', error);
     }
   }
 
@@ -299,7 +390,7 @@ export class ChargingSystemService {
       
       // 获取当前时段的电价
       const electricityPrice = virtualTimeService.getElectricityPrice(currentTime);
-      const serviceFeeRate = record.chargingPile.type === 'FAST' ? 0.5 : 0.3;
+      const serviceFeeRate = 0.8; // 统一服务费率 0.8 元/度
 
       // 重新计算实际费用
       const actualChargingFee = record.actualAmount * electricityPrice;
@@ -333,7 +424,7 @@ export class ChargingSystemService {
         });
       });
 
-      console.log(`充电完成 - 详单号: ${record.recordNumber}, 充电桩: ${record.chargingPile.name}`);
+      console.log(`充电完成 - 详单号: ${record.recordNumber}, 充电桩: ${record.chargingPile.name}, 实际充电量: ${record.actualAmount}度, 总费用: ${actualTotalFee.toFixed(2)}元 (电费: ${actualChargingFee.toFixed(2)}元 + 服务费: ${actualServiceFee.toFixed(2)}元)`);
     } catch (error) {
       console.error('完成充电错误:', error);
     }

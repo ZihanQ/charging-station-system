@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Card, Button, message, Modal, Form, Input, Select, Badge, Table, Avatar, Dropdown } from 'antd';
+import { Layout, Menu, Card, Button, message, Modal, Form, Input, InputNumber, Select, Badge, Table, Avatar, Dropdown } from 'antd';
 import { 
   ThunderboltOutlined, 
   ClockCircleOutlined, 
@@ -764,8 +764,8 @@ const UserDashboard: React.FC = () => {
         layout="vertical"
         onFinish={onSubmitChargingRequest}
         initialValues={{
-          batteryCapacity: 60,
-          requestedAmount: 30,
+          batteryCapacity: 60.0,
+          requestedAmount: 30.0,
           chargingMode: 'FAST'
         }}
       >
@@ -774,10 +774,18 @@ const UserDashboard: React.FC = () => {
           name="batteryCapacity"
           rules={[
             { required: true, message: '请输入电池总容量' },
-            { type: 'number', min: 10, max: 100, message: '电池容量应在10-100kWh之间' }
+            { type: 'number', min: 10, max: 1000, message: '电池容量应在10-1000kWh之间' }
           ]}
         >
-          <Input type="number" placeholder="请输入电池总容量" suffix="kWh" />
+          <InputNumber 
+            placeholder="请输入电池总容量" 
+            addonAfter="kWh"
+            min={10}
+            max={1000}
+            precision={1}
+            step={0.1}
+            className="w-full"
+          />
         </Form.Item>
 
         <Form.Item
@@ -785,10 +793,18 @@ const UserDashboard: React.FC = () => {
           name="requestedAmount"
           rules={[
             { required: true, message: '请输入请求充电量' },
-            { type: 'number', min: 1, max: 100, message: '充电量应在1-100kWh之间' }
+            { type: 'number', min: 1, max: 1000, message: '充电量应在1-1000kWh之间' }
           ]}
         >
-          <Input type="number" placeholder="请输入需要充电的电量" suffix="kWh" />
+          <InputNumber 
+            placeholder="请输入需要充电的电量" 
+            addonAfter="kWh"
+            min={1}
+            max={1000}
+            precision={1}
+            step={0.1}
+            className="w-full"
+          />
         </Form.Item>
 
         <Form.Item
@@ -837,10 +853,18 @@ const UserDashboard: React.FC = () => {
           name="requestedAmount"
           rules={[
             { required: true, message: '请输入请求充电量' },
-            { type: 'number', min: 1, max: 100, message: '充电量应在1-100kWh之间' }
+            { type: 'number', min: 1, max: 1000, message: '充电量应在1-1000kWh之间' }
           ]}
         >
-          <Input type="number" placeholder="请输入需要充电的电量" suffix="kWh" />
+          <InputNumber 
+            placeholder="请输入需要充电的电量" 
+            addonAfter="kWh"
+            min={1}
+            max={1000}
+            precision={1}
+            step={0.1}
+            className="w-full"
+          />
         </Form.Item>
 
         <Form.Item

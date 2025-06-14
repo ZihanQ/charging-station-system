@@ -21,14 +21,14 @@ export function initializeServices(socketService: SocketService) {
 
 // 验证模式
 const chargingRequestSchema = Joi.object({
-  batteryCapacity: Joi.number().min(10).max(100).required(),
-  requestedAmount: Joi.number().min(1).max(100).required(),
+  batteryCapacity: Joi.number().min(10).max(1000).required(),
+  requestedAmount: Joi.number().min(1).max(1000).required(),
   chargingMode: Joi.string().valid('FAST', 'SLOW').required()
 });
 
 // 修改充电请求验证模式
 const updateChargingRequestSchema = Joi.object({
-  requestedAmount: Joi.number().min(1).max(100).optional(),
+  requestedAmount: Joi.number().min(1).max(1000).optional(),
   chargingMode: Joi.string().valid('FAST', 'SLOW').optional()
 }).or('requestedAmount', 'chargingMode');
 
@@ -38,8 +38,16 @@ router.use(authenticateToken);
 // 提交充电请求
 router.post('/request', async (req: Request, res: Response) => {
   try {
+    console.log('收到充电请求数据:', req.body);
+    console.log('数据类型检查:', {
+      batteryCapacity: typeof req.body.batteryCapacity,
+      requestedAmount: typeof req.body.requestedAmount,
+      chargingMode: typeof req.body.chargingMode
+    });
+    
     const { error, value } = chargingRequestSchema.validate(req.body);
     if (error) {
+      console.log('验证失败:', error.details);
       return res.status(400).json({
         success: false,
         message: '输入数据验证失败',

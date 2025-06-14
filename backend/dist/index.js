@@ -20,7 +20,6 @@ const testScript_1 = __importDefault(require("./routes/testScript"));
 const testUsers_1 = __importDefault(require("./routes/testUsers"));
 // 导入服务
 const socketService_1 = require("./services/socketService");
-const chargingSystemService_1 = require("./services/chargingSystemService");
 const testScriptService_1 = require("./services/testScriptService");
 // 加载环境变量
 dotenv_1.default.config();
@@ -56,7 +55,9 @@ app.get('/api/health', (req, res) => {
 });
 // 初始化服务
 const socketService = new socketService_1.SocketService(io);
-const chargingSystemService = new chargingSystemService_1.ChargingSystemService(socketService);
+// 初始化充电路由服务
+const charging_2 = require("./routes/charging");
+(0, charging_2.initializeServices)(socketService);
 // 将io实例添加到app中，供路由使用
 app.set('io', io);
 // 错误处理中间件
@@ -76,12 +77,10 @@ server.listen(PORT, () => {
     console.log(`🚀 服务器运行在端口 ${PORT}`);
     console.log(`📡 Socket.IO 服务已启动`);
     // 初始化充电系统
-    chargingSystemService.initialize().then(() => {
-        console.log('⚡ 充电调度系统已初始化');
-        // 创建默认测试场景
-        testScriptService_1.testScriptService.createDefaultTestScenarios();
-        console.log('🧪 测试脚本服务已启动');
-    }).catch(console.error);
+    console.log('⚡ 充电调度系统已初始化');
+    // 创建默认测试场景
+    testScriptService_1.testScriptService.createDefaultTestScenarios();
+    console.log('🧪 测试脚本服务已启动');
 });
 // 优雅关闭
 process.on('SIGTERM', () => {
