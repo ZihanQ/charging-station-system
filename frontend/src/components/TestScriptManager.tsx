@@ -9,7 +9,7 @@ import {
   ReloadOutlined, UserOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import axios from 'axios';
+import apiClient, { apiUtils } from '../services/api';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -53,7 +53,7 @@ const TestScriptManager: React.FC = () => {
   // 获取测试脚本列表
   const fetchScripts = async () => {
     try {
-      const response = await axios.get('/api/test-script/scripts');
+      const response = await apiClient.get('/test-script/scripts');
       if (response.data.success) {
         setScripts(response.data.data);
       }
@@ -65,7 +65,7 @@ const TestScriptManager: React.FC = () => {
   // 获取测试脚本服务状态
   const fetchStatus = async () => {
     try {
-      const response = await axios.get('/api/test-script/status');
+      const response = await apiClient.get('/test-script/status');
       if (response.data.success) {
         setStatus(response.data.data);
       }
@@ -90,7 +90,7 @@ const TestScriptManager: React.FC = () => {
         }))
       };
 
-      const response = await axios.post('/api/test-script/scripts', scriptData);
+      const response = await apiClient.post('/test-script/scripts', scriptData);
       
       if (response.data.success) {
         message.success('测试脚本保存成功');
@@ -101,7 +101,7 @@ const TestScriptManager: React.FC = () => {
         message.error(response.data.message || '保存失败');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.message || '保存测试脚本失败');
+      message.error(apiUtils.handleError(error));
     }
     setLoading(false);
   };
@@ -110,7 +110,7 @@ const TestScriptManager: React.FC = () => {
   const toggleScript = async (scriptId: string, isActive: boolean) => {
     setLoading(true);
     try {
-      const response = await axios.patch(`/api/test-script/scripts/${scriptId}/toggle`, {
+      const response = await apiClient.patch(`/test-script/scripts/${scriptId}/toggle`, {
         isActive
       });
       
@@ -122,7 +122,7 @@ const TestScriptManager: React.FC = () => {
         message.error(response.data.message || '操作失败');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.message || '操作失败');
+      message.error(apiUtils.handleError(error));
     }
     setLoading(false);
   };
@@ -131,7 +131,7 @@ const TestScriptManager: React.FC = () => {
   const deleteScript = async (scriptId: string) => {
     setLoading(true);
     try {
-      const response = await axios.delete(`/api/test-script/scripts/${scriptId}`);
+      const response = await apiClient.delete(`/test-script/scripts/${scriptId}`);
       
       if (response.data.success) {
         message.success('测试脚本删除成功');
@@ -141,7 +141,7 @@ const TestScriptManager: React.FC = () => {
         message.error(response.data.message || '删除失败');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.message || '删除测试脚本失败');
+      message.error(apiUtils.handleError(error));
     }
     setLoading(false);
   };
@@ -150,7 +150,7 @@ const TestScriptManager: React.FC = () => {
   const createDefaultScenarios = async () => {
     setLoading(true);
     try {
-      const response = await axios.post('/api/test-script/default-scenarios');
+      const response = await apiClient.post('/test-script/default-scenarios');
       
       if (response.data.success) {
         message.success('默认测试场景创建成功');
@@ -160,7 +160,7 @@ const TestScriptManager: React.FC = () => {
         message.error(response.data.message || '创建失败');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.message || '创建默认测试场景失败');
+      message.error(apiUtils.handleError(error));
     }
     setLoading(false);
   };
@@ -169,7 +169,7 @@ const TestScriptManager: React.FC = () => {
   const resetAllTasks = async () => {
     setLoading(true);
     try {
-      const response = await axios.post('/api/test-script/reset-tasks');
+      const response = await apiClient.post('/test-script/reset-tasks');
       
       if (response.data.success) {
         message.success('所有测试任务状态已重置');
@@ -179,7 +179,7 @@ const TestScriptManager: React.FC = () => {
         message.error(response.data.message || '重置失败');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.message || '重置测试任务失败');
+      message.error(apiUtils.handleError(error));
     }
     setLoading(false);
   };

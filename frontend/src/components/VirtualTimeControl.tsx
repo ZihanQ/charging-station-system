@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Form, Button, DatePicker, InputNumber, Switch, message, Space, Statistic, Typography, Alert } from 'antd';
 import { PlayCircleOutlined, PauseCircleOutlined, ClockCircleOutlined, FastForwardOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import axios from 'axios';
+import apiClient, { apiUtils } from '../services/api';
 
 const { Title, Text } = Typography;
 
@@ -23,7 +23,7 @@ const VirtualTimeControl: React.FC = () => {
   // 获取虚拟时间状态
   const fetchStatus = async () => {
     try {
-      const response = await axios.get('/api/virtual-time/status');
+      const response = await apiClient.get('/virtual-time/status');
       if (response.data.success) {
         setStatus(response.data.data);
       }
@@ -36,7 +36,7 @@ const VirtualTimeControl: React.FC = () => {
   const setVirtualTime = async (values: any) => {
     setLoading(true);
     try {
-      const response = await axios.post('/api/virtual-time/set', {
+      const response = await apiClient.post('/virtual-time/set', {
         time: values.time.toDate()
       });
       
@@ -47,7 +47,7 @@ const VirtualTimeControl: React.FC = () => {
         message.error(response.data.message || '设置失败');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.message || '设置虚拟时间失败');
+      message.error(apiUtils.handleError(error));
     }
     setLoading(false);
   };
@@ -56,7 +56,7 @@ const VirtualTimeControl: React.FC = () => {
   const setAccelerationRate = async (rate: number) => {
     setLoading(true);
     try {
-      const response = await axios.post('/api/virtual-time/acceleration', {
+      const response = await apiClient.post('/virtual-time/acceleration', {
         rate
       });
       
@@ -67,7 +67,7 @@ const VirtualTimeControl: React.FC = () => {
         message.error(response.data.message || '设置失败');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.message || '设置时间加速倍率失败');
+      message.error(apiUtils.handleError(error));
     }
     setLoading(false);
   };
@@ -76,8 +76,8 @@ const VirtualTimeControl: React.FC = () => {
   const togglePause = async () => {
     setLoading(true);
     try {
-      const endpoint = status?.isPaused ? '/api/virtual-time/resume' : '/api/virtual-time/pause';
-      const response = await axios.post(endpoint);
+      const endpoint = status?.isPaused ? '/virtual-time/resume' : '/virtual-time/pause';
+      const response = await apiClient.post(endpoint);
       
       if (response.data.success) {
         message.success(response.data.message);
@@ -86,7 +86,7 @@ const VirtualTimeControl: React.FC = () => {
         message.error(response.data.message || '操作失败');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.message || '操作失败');
+      message.error(apiUtils.handleError(error));
     }
     setLoading(false);
   };
@@ -95,7 +95,7 @@ const VirtualTimeControl: React.FC = () => {
   const disableVirtualMode = async () => {
     setLoading(true);
     try {
-      const response = await axios.post('/api/virtual-time/disable');
+      const response = await apiClient.post('/virtual-time/disable');
       
       if (response.data.success) {
         message.success('已切换到真实时间模式');
@@ -104,7 +104,7 @@ const VirtualTimeControl: React.FC = () => {
         message.error(response.data.message || '操作失败');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.message || '操作失败');
+      message.error(apiUtils.handleError(error));
     }
     setLoading(false);
   };

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { virtualTimeService } from '../services/virtualTimeService';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
@@ -26,7 +26,7 @@ router.get('/status', authenticateToken, (req: Request, res: Response) => {
 });
 
 // 设置虚拟时间（仅管理员）
-router.post('/set', authenticateToken, (req: Request, res: Response) => {
+router.post('/set', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     // 这里应该添加管理员权限检查
     const { time } = req.body;
@@ -67,7 +67,7 @@ router.post('/set', authenticateToken, (req: Request, res: Response) => {
 });
 
 // 设置时间加速倍率（仅管理员）
-router.post('/acceleration', authenticateToken, (req: Request, res: Response) => {
+router.post('/acceleration', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     const { rate } = req.body;
     
@@ -95,7 +95,7 @@ router.post('/acceleration', authenticateToken, (req: Request, res: Response) =>
 });
 
 // 暂停虚拟时间（仅管理员）
-router.post('/pause', authenticateToken, (req: Request, res: Response) => {
+router.post('/pause', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     virtualTimeService.pauseVirtualTime();
     
@@ -114,7 +114,7 @@ router.post('/pause', authenticateToken, (req: Request, res: Response) => {
 });
 
 // 恢复虚拟时间（仅管理员）
-router.post('/resume', authenticateToken, (req: Request, res: Response) => {
+router.post('/resume', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     virtualTimeService.resumeVirtualTime();
     
@@ -133,7 +133,7 @@ router.post('/resume', authenticateToken, (req: Request, res: Response) => {
 });
 
 // 关闭虚拟时间模式（仅管理员）
-router.post('/disable', authenticateToken, (req: Request, res: Response) => {
+router.post('/disable', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     virtualTimeService.disableVirtualMode();
     

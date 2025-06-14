@@ -15,9 +15,13 @@ const auth_1 = __importDefault(require("./routes/auth"));
 const user_1 = __importDefault(require("./routes/user"));
 const admin_1 = __importDefault(require("./routes/admin"));
 const charging_1 = __importDefault(require("./routes/charging"));
+const virtualTime_1 = __importDefault(require("./routes/virtualTime"));
+const testScript_1 = __importDefault(require("./routes/testScript"));
+const testUsers_1 = __importDefault(require("./routes/testUsers"));
 // 导入服务
 const socketService_1 = require("./services/socketService");
 const chargingSystemService_1 = require("./services/chargingSystemService");
+const testScriptService_1 = require("./services/testScriptService");
 // 加载环境变量
 dotenv_1.default.config();
 const app = (0, express_1.default)();
@@ -43,6 +47,9 @@ app.use('/api/auth', auth_1.default);
 app.use('/api/user', user_1.default);
 app.use('/api/admin', admin_1.default);
 app.use('/api/charging', charging_1.default);
+app.use('/api/virtual-time', virtualTime_1.default);
+app.use('/api/test-script', testScript_1.default);
+app.use('/api/test-users', testUsers_1.default);
 // 健康检查
 app.get('/api/health', (req, res) => {
     res.json({ status: 'OK', timestamp: new Date().toISOString() });
@@ -71,6 +78,9 @@ server.listen(PORT, () => {
     // 初始化充电系统
     chargingSystemService.initialize().then(() => {
         console.log('⚡ 充电调度系统已初始化');
+        // 创建默认测试场景
+        testScriptService_1.testScriptService.createDefaultTestScenarios();
+        console.log('🧪 测试脚本服务已启动');
     }).catch(console.error);
 });
 // 优雅关闭

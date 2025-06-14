@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { testScriptService, TestScript } from '../services/testScriptService';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = Router();
 
 // 获取所有测试脚本
-router.get('/scripts', authenticateToken, (req: Request, res: Response) => {
+router.get('/scripts', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     const scripts = testScriptService.getAllScripts();
     res.json({
@@ -22,7 +22,7 @@ router.get('/scripts', authenticateToken, (req: Request, res: Response) => {
 });
 
 // 获取特定测试脚本
-router.get('/scripts/:scriptId', authenticateToken, (req: Request, res: Response) => {
+router.get('/scripts/:scriptId', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     const { scriptId } = req.params;
     const script = testScriptService.getScript(scriptId);
@@ -48,7 +48,7 @@ router.get('/scripts/:scriptId', authenticateToken, (req: Request, res: Response
 });
 
 // 创建测试脚本
-router.post('/scripts', authenticateToken, (req: Request, res: Response) => {
+router.post('/scripts', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     const { name, description, tasks } = req.body;
     
@@ -85,7 +85,7 @@ router.post('/scripts', authenticateToken, (req: Request, res: Response) => {
 });
 
 // 启用/禁用测试脚本
-router.patch('/scripts/:scriptId/toggle', authenticateToken, (req: Request, res: Response) => {
+router.patch('/scripts/:scriptId/toggle', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     const { scriptId } = req.params;
     const { isActive } = req.body;
@@ -121,7 +121,7 @@ router.patch('/scripts/:scriptId/toggle', authenticateToken, (req: Request, res:
 });
 
 // 删除测试脚本
-router.delete('/scripts/:scriptId', authenticateToken, (req: Request, res: Response) => {
+router.delete('/scripts/:scriptId', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     const { scriptId } = req.params;
     
@@ -148,7 +148,7 @@ router.delete('/scripts/:scriptId', authenticateToken, (req: Request, res: Respo
 });
 
 // 创建默认测试场景
-router.post('/default-scenarios', authenticateToken, (req: Request, res: Response) => {
+router.post('/default-scenarios', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     testScriptService.createDefaultTestScenarios();
     
@@ -167,7 +167,7 @@ router.post('/default-scenarios', authenticateToken, (req: Request, res: Respons
 });
 
 // 重置所有任务状态
-router.post('/reset-tasks', authenticateToken, (req: Request, res: Response) => {
+router.post('/reset-tasks', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     testScriptService.resetAllTasks();
     
@@ -186,7 +186,7 @@ router.post('/reset-tasks', authenticateToken, (req: Request, res: Response) => 
 });
 
 // 获取测试脚本服务状态
-router.get('/status', authenticateToken, (req: Request, res: Response) => {
+router.get('/status', authenticateToken, requireAdmin, (req: Request, res: Response) => {
   try {
     const status = testScriptService.getStatus();
     

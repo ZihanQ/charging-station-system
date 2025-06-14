@@ -6,6 +6,7 @@ export class VirtualTimeService {
   private lastUpdateTime: number;
   private isPaused: boolean = false;
 
+  
   private constructor() {
     this.virtualTime = new Date();
     this.lastUpdateTime = Date.now();

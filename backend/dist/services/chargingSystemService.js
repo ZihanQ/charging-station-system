@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ChargingSystemService = void 0;
 const client_1 = require("@prisma/client");
+const virtualTimeService_1 = require("./virtualTimeService");
 class ChargingSystemService {
     constructor(socketService) {
         this.isProcessing = false;
@@ -154,13 +155,15 @@ class ChargingSystemService {
         }
         // 生成充电详单编号
         const recordNumber = await this.generateRecordNumber();
-        // 获取费率配置
-        const chargingFeeRate = parseFloat((await this.getSystemConfig(queueRecord.chargingMode === 'FAST' ? 'charging_fee_fast' : 'charging_fee_slow')) || '1.0');
-        const serviceFeeRate = parseFloat((await this.getSystemConfig(queueRecord.chargingMode === 'FAST' ? 'service_fee_fast' : 'service_fee_slow')) || '0.5');
+        // 基于虚拟时间获取电价
+        const currentTime = virtualTimeService_1.virtualTimeService.getCurrentTime();
+        const electricityPrice = virtualTimeService_1.virtualTimeService.getElectricityPrice(currentTime);
+        const serviceFeeRate = 0.8; // 统一服务费率
         // 计算费用
-        const chargingFee = queueRecord.requestedAmount * chargingFeeRate;
+        const chargingFee = queueRecord.requestedAmount * electricityPrice;
         const serviceFee = queueRecord.requestedAmount * serviceFeeRate;
         const totalFee = chargingFee + serviceFee;
+        console.log(`充电开始 - 时间: ${currentTime.toLocaleString('zh-CN')}, 时段: ${virtualTimeService_1.virtualTimeService.getTimeSegment(currentTime)}, 电价: ${electricityPrice}元/度`);
         // 事务处理：更新排队记录状态并创建充电记录
         await this.prisma.$transaction(async (tx) => {
             // 更新排队记录
@@ -180,7 +183,7 @@ class ChargingSystemService {
                     requestedAmount: queueRecord.requestedAmount,
                     actualAmount: 0, // 开始时为0，充电完成后更新
                     chargingTime: 0,
-                    startTime: new Date(),
+                    startTime: currentTime,
                     chargingFee,
                     serviceFee,
                     totalFee,
