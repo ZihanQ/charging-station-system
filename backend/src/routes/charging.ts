@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import Joi from 'joi';
 import { authenticateToken } from '../middleware/auth';
+import { virtualTimeService } from '../services/virtualTimeService';
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -425,24 +426,26 @@ router.delete('/request/:queueNumber', async (req: Request, res: Response) => {
       console.log('查找到的充电记录:', chargingRecord);
 
       if (chargingRecord) {
-        // 计算实际充电费用
-        const chargingTime = (new Date().getTime() - new Date(chargingRecord.startTime).getTime()) / (1000 * 60); // 分钟
+        // 计算实际充电费用 - 使用虚拟时间
+        const currentTime = virtualTimeService.getCurrentTime();
+        const chargingTime = (currentTime.getTime() - new Date(chargingRecord.startTime).getTime()) / (1000 * 60); // 分钟
         const actualAmount = Math.min(chargingRecord.requestedAmount, chargingTime * 0.5); // 简化计算
         
-        const chargingFeeRate = queueRecord.chargingMode === 'FAST' ? 1.0 : 0.8;
+        // 获取当前时段的电价
+        const electricityPrice = virtualTimeService.getElectricityPrice(currentTime);
         const serviceFeeRate = queueRecord.chargingMode === 'FAST' ? 0.5 : 0.3;
         
-        const chargingFee = actualAmount * chargingFeeRate;
+        const chargingFee = actualAmount * electricityPrice;
         const serviceFee = actualAmount * serviceFeeRate;
         const totalFee = chargingFee + serviceFee;
 
         console.log(`计算费用 - 充电时长: ${chargingTime}分钟, 实际充电量: ${actualAmount}度, 总费用: ${totalFee}元`);
 
-        // 更新充电记录
+        // 更新充电记录 - 使用虚拟时间
         await prisma.chargingRecord.update({
           where: { id: chargingRecord.id },
           data: {
-            endTime: new Date(),
+            endTime: currentTime,
             actualAmount,
             chargingTime: chargingTime / 60,
             chargingFee,

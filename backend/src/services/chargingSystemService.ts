@@ -251,12 +251,24 @@ export class ChargingSystemService {
           record.requestedAmount
         );
 
+        // 获取当前时段的电价
+        const electricityPrice = virtualTimeService.getElectricityPrice(currentTime);
+        const serviceFeeRate = record.chargingPile.type === 'FAST' ? 0.5 : 0.3;
+        
+        // 计算费用
+        const chargingFee = actualAmount * electricityPrice;
+        const serviceFee = actualAmount * serviceFeeRate;
+        const totalFee = chargingFee + serviceFee;
+
         // 更新充电记录
         await this.prisma.chargingRecord.update({
           where: { id: record.id },
           data: {
             actualAmount,
-            chargingTime: chargingTimeMinutes / 60
+            chargingTime: chargingTimeMinutes / 60,
+            chargingFee,
+            serviceFee,
+            totalFee
           }
         });
 
