@@ -19,8 +19,8 @@ apiClient.interceptors.request.use(
     
     // 根据请求路径智能选择token
     if (config.url?.includes('/admin/') || 
-        config.url?.includes('/virtual-time/') || 
-        config.url?.includes('/test-script/')) {
+        config.url?.includes('/test-script/') ||
+        (config.url?.includes('/virtual-time/') && config.method?.toUpperCase() !== 'GET')) {
       // 管理员API请求，使用管理员token
       token = authService.getToken('ADMIN');
       console.log('[API] 使用管理员token');

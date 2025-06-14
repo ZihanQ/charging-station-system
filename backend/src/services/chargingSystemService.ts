@@ -238,9 +238,10 @@ export class ChargingSystemService {
       });
 
       for (const record of chargingRecords) {
-        // 计算充电时长（分钟）
+        // 计算充电时长（分钟）- 使用虚拟时间
+        const currentTime = virtualTimeService.getCurrentTime();
         const chargingTimeMinutes = Math.floor(
-          (new Date().getTime() - record.startTime.getTime()) / (1000 * 60)
+          (currentTime.getTime() - record.startTime.getTime()) / (1000 * 60)
         );
 
         // 根据充电桩功率计算实际充电量
@@ -308,11 +309,11 @@ export class ChargingSystemService {
 
       // 事务处理：完成充电并释放充电桩
       await this.prisma.$transaction(async (tx) => {
-        // 更新充电记录为已完成
+        // 更新充电记录为已完成 - 使用虚拟时间
         await tx.chargingRecord.update({
           where: { id: recordId },
           data: {
-            endTime: new Date(),
+            endTime: virtualTimeService.getCurrentTime(),
             chargingFee: actualChargingFee,
             serviceFee: actualServiceFee,
             totalFee: actualTotalFee,
@@ -351,9 +352,9 @@ export class ChargingSystemService {
     }
   }
 
-  // 生成充电详单编号
+  // 生成充电详单编号 - 使用虚拟时间
   private async generateRecordNumber(): Promise<string> {
-    const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const today = virtualTimeService.getCurrentTime().toISOString().split('T')[0].replace(/-/g, '');
     const count = await this.prisma.chargingRecord.count({
       where: {
         recordNumber: {
@@ -413,11 +414,11 @@ export class ChargingSystemService {
   public async emergencyStopCharging(recordId: string, reason: string = '紧急停止') {
     try {
       await this.prisma.$transaction(async (tx) => {
-        // 更新充电记录
+        // 更新充电记录 - 使用虚拟时间
         await tx.chargingRecord.update({
           where: { id: recordId },
           data: {
-            endTime: new Date(),
+            endTime: virtualTimeService.getCurrentTime(),
             status: 'FAULT'
           }
         });

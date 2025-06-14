@@ -17,6 +17,7 @@ import { useNavigate } from 'react-router-dom';
 import { chargingAPI, userAPI, apiUtils } from '../services/api';
 import { authService } from '../services/auth';
 import { webSocketService } from '../services/websocket';
+import VirtualTimeDisplay from '../components/VirtualTimeDisplay';
 
 const { Header, Sider, Content } = Layout;
 const { Option } = Select;
@@ -443,6 +444,11 @@ const UserDashboard: React.FC = () => {
                   </div>
                 </div>
               </Card>
+            </div>
+
+            {/* 虚拟时间显示 */}
+            <div className="grid grid-cols-1 gap-6">
+              <VirtualTimeDisplay />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
