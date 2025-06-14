@@ -3,9 +3,21 @@ import { PrismaClient } from '@prisma/client';
 import Joi from 'joi';
 import { authenticateToken } from '../middleware/auth';
 import { virtualTimeService } from '../services/virtualTimeService';
+import { ChargingSystemService } from '../services/chargingSystemService';
+import { SocketService } from '../services/socketService';
 
 const router = express.Router();
 const prisma = new PrismaClient();
+let chargingSystemService: ChargingSystemService;
+
+// 初始化服务
+export function initializeServices(socketService: SocketService) {
+  chargingSystemService = new ChargingSystemService(socketService);
+  // 启动调度服务
+  chargingSystemService.initialize().then(() => {
+    console.log('充电调度系统已在路由中初始化');
+  }).catch(console.error);
+}
 
 // 验证模式
 const chargingRequestSchema = Joi.object({
@@ -81,6 +93,50 @@ router.post('/request', async (req: Request, res: Response) => {
         }
       }
     });
+
+    // 检查是否有可用的充电桩
+    const chargingPiles = await prisma.chargingPile.findMany({
+      where: {
+        type: chargingMode,
+        status: 'NORMAL',
+        queueRecords: {
+          none: {
+            status: {
+              in: ['CHARGING']
+            }
+          }
+        }
+      }
+    });
+
+    // 如果有可用充电桩，立即开始充电
+    if (chargingPiles.length > 0) {
+      try {
+        // 开始充电（startCharging方法会自动更新排队记录状态）
+        await chargingSystemService.startCharging(queueRecord.id, chargingPiles[0].id);
+
+        return res.status(201).json({
+          success: true,
+          message: '充电请求已提交，并已开始充电',
+          data: {
+            queueNumber: queueRecord.queueNumber,
+            position: 0,
+            status: 'CHARGING',
+            chargingPile: chargingPiles[0].name
+          }
+        });
+      } catch (error) {
+        console.error('开始充电失败:', error);
+        // 如果开始充电失败，确保状态保持为WAITING
+        await prisma.queueRecord.update({
+          where: { id: queueRecord.id },
+          data: {
+            status: 'WAITING',
+            chargingPileId: null
+          }
+        });
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -497,27 +553,36 @@ router.delete('/request/:queueNumber', async (req: Request, res: Response) => {
       console.log('下一个排队用户:', nextInQueue);
 
       if (nextInQueue) {
-        // 立即开始为下一个用户充电
+        // 立即开始为下一个用户充电 - 使用虚拟时间
+        const currentTime = virtualTimeService.getCurrentTime();
         const recordNumber = await generateRecordNumber();
         
+        // 获取当前时段的电价
+        const electricityPrice = virtualTimeService.getElectricityPrice(currentTime);
+        const serviceFeeRate = nextInQueue.chargingMode === 'FAST' ? 0.5 : 0.3;
+        
+        // 计算预估费用
+        const chargingFee = nextInQueue.requestedAmount * electricityPrice;
+        const serviceFee = nextInQueue.requestedAmount * serviceFeeRate;
+        const totalFee = chargingFee + serviceFee;
+
         await prisma.$transaction(async (tx) => {
           // 创建新的充电记录
           await tx.chargingRecord.create({
             data: {
               recordNumber,
               userId: nextInQueue.userId,
-              chargingPileId: queueRecord.chargingPileId!,
+              chargingPileId: queueRecord.chargingPileId || '',
               requestedAmount: nextInQueue.requestedAmount,
               actualAmount: 0,
               chargingTime: 0,
-              startTime: new Date(),
-              chargingFee: 0,
-              serviceFee: 0,
-              totalFee: 0,
+              startTime: currentTime,
+              chargingFee,
+              serviceFee,
+              totalFee,
               status: 'CHARGING'
             }
           });
-
           // 更新队列记录状态
           await tx.queueRecord.update({
             where: { id: nextInQueue.id },
@@ -705,7 +770,8 @@ function calculateEstimatedWaitTime(chargingMode: 'FAST' | 'SLOW', position: num
 
 // 辅助函数：生成充电详单编号
 async function generateRecordNumber(): Promise<string> {
-  const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+  const currentTime = virtualTimeService.getCurrentTime();
+  const today = currentTime.toISOString().split('T')[0].replace(/-/g, '');
   const count = await prisma.chargingRecord.count({
     where: {
       recordNumber: {
@@ -713,7 +779,6 @@ async function generateRecordNumber(): Promise<string> {
       }
     }
   });
-  
   return `CR${today}${(count + 1).toString().padStart(4, '0')}`;
 }
 

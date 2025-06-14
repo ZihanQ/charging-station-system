@@ -1,11 +1,12 @@
 import { PrismaClient } from '@prisma/client';
-import { SocketService } from './socketService';
 import { virtualTimeService } from './virtualTimeService';
+import { SocketService } from './socketService';
 
 export class ChargingSystemService {
   private prisma: PrismaClient;
-  private socketService: SocketService;
   private isProcessing: boolean = false;
+  private socketService: SocketService;
+  private static instance: ChargingSystemService;
 
   constructor(socketService: SocketService) {
     this.prisma = new PrismaClient();
@@ -90,19 +91,30 @@ export class ChargingSystemService {
     this.isProcessing = true;
     
     try {
-      // 获取可用的充电桩
+      // 获取等待中的排队记录
+      const waitingRecords = await this.prisma.queueRecord.findMany({
+        where: {
+          status: 'WAITING'
+        },
+        orderBy: {
+          createdAt: 'asc'
+        }
+      });
+
+      if (waitingRecords.length === 0) {
+        return; // 没有等待中的记录
+      }
+
+      // 获取所有可用的充电桩
       const availablePiles = await this.prisma.chargingPile.findMany({
-        where: { 
+        where: {
           status: 'NORMAL',
           queueRecords: {
             none: {
-              status: {
-                in: ['IN_QUEUE', 'CHARGING']
-              }
+              status: 'CHARGING'
             }
           }
-        },
-        orderBy: { position: 'asc' }
+        }
       });
 
       if (availablePiles.length === 0) {
@@ -113,14 +125,21 @@ export class ChargingSystemService {
       const fastPiles = availablePiles.filter(pile => pile.type === 'FAST');
       const slowPiles = availablePiles.filter(pile => pile.type === 'SLOW');
 
-      // 处理快充队列
-      if (fastPiles.length > 0) {
-        await this.assignPilesToQueue('FAST', fastPiles);
-      }
-
-      // 处理慢充队列
-      if (slowPiles.length > 0) {
-        await this.assignPilesToQueue('SLOW', slowPiles);
+      // 为每个等待中的记录尝试分配充电桩
+      for (const record of waitingRecords) {
+        const matchingPiles = record.chargingMode === 'FAST' ? fastPiles : slowPiles;
+        
+        if (matchingPiles.length > 0) {
+          const pile = matchingPiles.shift(); // 取出并移除第一个充电桩
+          try {
+            await this.startCharging(record.id, pile!.id);
+            console.log(`成功分配充电桩 - 排队号: ${record.queueNumber}, 充电桩: ${pile!.name}`);
+          } catch (error) {
+            console.error(`分配充电桩失败 - 排队号: ${record.queueNumber}:`, error);
+            // 如果分配失败，将充电桩放回可用列表
+            matchingPiles.push(pile!);
+          }
+        }
       }
 
     } catch (error) {
@@ -130,50 +149,13 @@ export class ChargingSystemService {
     }
   }
 
-  // 为队列分配充电桩
-  private async assignPilesToQueue(chargingMode: 'FAST' | 'SLOW', availablePiles: any[]) {
-    // 获取等待中的排队记录
-    const waitingRecords = await this.prisma.queueRecord.findMany({
-      where: {
-        chargingMode,
-        status: 'WAITING'
-      },
+  // 开始充电
+  public async startCharging(queueRecordId: string, chargingPileId: string) {
+    const queueRecord = await this.prisma.queueRecord.findUnique({
+      where: { id: queueRecordId },
       include: {
         user: true
-      },
-      orderBy: { createdAt: 'asc' },
-      take: availablePiles.length
-    });
-
-    for (let i = 0; i < waitingRecords.length && i < availablePiles.length; i++) {
-      const record = waitingRecords[i];
-      const pile = availablePiles[i];
-
-      try {
-        // 分配充电桩并开始充电
-        await this.startCharging(record.id, pile.id);
-        
-        // 通知用户
-        this.socketService.notifyUser(record.userId, {
-          type: 'charging_assigned',
-          data: {
-            queueNumber: record.queueNumber,
-            chargingPile: pile.name,
-            message: `您的充电请求已分配到${pile.name}桩，请前往充电`
-          }
-        });
-
-        console.log(`已为排队号${record.queueNumber}分配充电桩${pile.name}`);
-      } catch (error) {
-        console.error(`分配充电桩失败 - 排队号${record.queueNumber}:`, error);
       }
-    }
-  }
-
-  // 开始充电
-  private async startCharging(queueRecordId: string, chargingPileId: string) {
-    const queueRecord = await this.prisma.queueRecord.findUnique({
-      where: { id: queueRecordId }
     });
 
     if (!queueRecord) {
@@ -196,8 +178,8 @@ export class ChargingSystemService {
     console.log(`充电开始 - 时间: ${currentTime.toLocaleString('zh-CN')}, 时段: ${virtualTimeService.getTimeSegment(currentTime)}, 电价: ${electricityPrice}元/度`);
 
     // 事务处理：更新排队记录状态并创建充电记录
-    await this.prisma.$transaction(async (tx) => {
-      // 更新排队记录
+    const chargingRecord = await this.prisma.$transaction(async (tx) => {
+      // 更新排队记录状态
       await tx.queueRecord.update({
         where: { id: queueRecordId },
         data: {
@@ -207,7 +189,7 @@ export class ChargingSystemService {
       });
 
       // 创建充电记录
-      await tx.chargingRecord.create({
+      return await tx.chargingRecord.create({
         data: {
           recordNumber,
           userId: queueRecord.userId,
@@ -223,6 +205,21 @@ export class ChargingSystemService {
         }
       });
     });
+
+    // 通知用户充电开始
+    this.socketService.notifyUser(queueRecord.userId, {
+      type: 'charging_start',
+      data: {
+        recordNumber: chargingRecord.recordNumber,
+        chargingPile: chargingPileId,
+        requestedAmount: queueRecord.requestedAmount,
+        message: '充电已开始'
+      }
+    });
+
+    console.log(`成功开始充电 - 排队号: ${queueRecord.queueNumber}, 充电桩: ${chargingPileId}, 详单号: ${chargingRecord.recordNumber}`);
+
+    return chargingRecord;
   }
 
   // 更新充电状态（模拟充电过程）
@@ -277,16 +274,7 @@ export class ChargingSystemService {
           await this.completeCharging(record.id);
         }
 
-        // 实时通知用户充电进度
-        this.socketService.notifyUser(record.userId, {
-          type: 'charging_progress',
-          data: {
-            recordNumber: record.recordNumber,
-            actualAmount: parseFloat(actualAmount.toFixed(2)),
-            requestedAmount: record.requestedAmount,
-            progress: Math.floor((actualAmount / record.requestedAmount) * 100)
-          }
-        });
+        console.log(`充电进度更新 - 详单号: ${record.recordNumber}, 实际充电量: ${actualAmount.toFixed(2)}度, 进度: ${Math.floor((actualAmount / record.requestedAmount) * 100)}%`);
       }
     } catch (error) {
       console.error('更新充电状态错误:', error);
@@ -306,26 +294,25 @@ export class ChargingSystemService {
 
       if (!record) return;
 
-      // 重新计算实际费用
-      const chargingFeeRate = parseFloat((await this.getSystemConfig(
-        record.chargingPile.type === 'FAST' ? 'charging_fee_fast' : 'charging_fee_slow'
-      )) || '1.0');
+      // 使用虚拟时间
+      const currentTime = virtualTimeService.getCurrentTime();
       
-      const serviceFeeRate = parseFloat((await this.getSystemConfig(
-        record.chargingPile.type === 'FAST' ? 'service_fee_fast' : 'service_fee_slow'
-      )) || '0.5');
+      // 获取当前时段的电价
+      const electricityPrice = virtualTimeService.getElectricityPrice(currentTime);
+      const serviceFeeRate = record.chargingPile.type === 'FAST' ? 0.5 : 0.3;
 
-      const actualChargingFee = record.actualAmount * chargingFeeRate;
+      // 重新计算实际费用
+      const actualChargingFee = record.actualAmount * electricityPrice;
       const actualServiceFee = record.actualAmount * serviceFeeRate;
       const actualTotalFee = actualChargingFee + actualServiceFee;
 
       // 事务处理：完成充电并释放充电桩
       await this.prisma.$transaction(async (tx) => {
-        // 更新充电记录为已完成 - 使用虚拟时间
+        // 更新充电记录为已完成
         await tx.chargingRecord.update({
           where: { id: recordId },
           data: {
-            endTime: virtualTimeService.getCurrentTime(),
+            endTime: currentTime,
             chargingFee: actualChargingFee,
             serviceFee: actualServiceFee,
             totalFee: actualTotalFee,
@@ -344,18 +331,6 @@ export class ChargingSystemService {
             status: 'COMPLETED'
           }
         });
-      });
-
-      // 通知用户充电完成
-      this.socketService.notifyUser(record.userId, {
-        type: 'charging_completed',
-        data: {
-          recordNumber: record.recordNumber,
-          chargingPile: record.chargingPile.name,
-          actualAmount: record.actualAmount,
-          totalFee: actualTotalFee,
-          message: '充电已完成，请及时移走车辆'
-        }
       });
 
       console.log(`充电完成 - 详单号: ${record.recordNumber}, 充电桩: ${record.chargingPile.name}`);

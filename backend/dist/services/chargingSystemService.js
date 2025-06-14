@@ -165,7 +165,7 @@ class ChargingSystemService {
         const totalFee = chargingFee + serviceFee;
         console.log(`充电开始 - 时间: ${currentTime.toLocaleString('zh-CN')}, 时段: ${virtualTimeService_1.virtualTimeService.getTimeSegment(currentTime)}, 电价: ${electricityPrice}元/度`);
         // 事务处理：更新排队记录状态并创建充电记录
-        await this.prisma.$transaction(async (tx) => {
+        const chargingRecord = await this.prisma.$transaction(async (tx) => {
             // 更新排队记录
             await tx.queueRecord.update({
                 where: { id: queueRecordId },
@@ -175,7 +175,7 @@ class ChargingSystemService {
                 }
             });
             // 创建充电记录
-            await tx.chargingRecord.create({
+            return await tx.chargingRecord.create({
                 data: {
                     recordNumber,
                     userId: queueRecord.userId,
@@ -191,6 +191,18 @@ class ChargingSystemService {
                 }
             });
         });
+        // 通知用户充电开始
+        this.socketService.notifyUser(queueRecord.userId, {
+            type: 'charging_start',
+            data: {
+                recordNumber: chargingRecord.recordNumber,
+                chargingPile: chargingPileId,
+                requestedAmount: queueRecord.requestedAmount,
+                message: '充电已开始'
+            }
+        });
+        console.log(`成功开始充电 - 排队号: ${queueRecord.queueNumber}, 充电桩: ${chargingPileId}, 详单号: ${chargingRecord.recordNumber}`);
+        return chargingRecord;
     }
     // 更新充电状态（模拟充电过程）
     async updateChargingStatus() {
@@ -204,17 +216,31 @@ class ChargingSystemService {
                 }
             });
             for (const record of chargingRecords) {
-                // 计算充电时长（分钟）
-                const chargingTimeMinutes = Math.floor((new Date().getTime() - record.startTime.getTime()) / (1000 * 60));
+                // 计算充电时长（分钟）- 使用虚拟时间
+                const currentTime = virtualTimeService_1.virtualTimeService.getCurrentTime();
+                const chargingTimeMinutes = Math.floor((currentTime.getTime() - record.startTime.getTime()) / (1000 * 60));
                 // 根据充电桩功率计算实际充电量
                 const powerKWH = record.chargingPile.power;
                 const actualAmount = Math.min((chargingTimeMinutes / 60) * powerKWH, record.requestedAmount);
+                
+                // 获取当前时段的电价
+                const electricityPrice = virtualTimeService_1.virtualTimeService.getElectricityPrice(currentTime);
+                const serviceFeeRate = record.chargingPile.type === 'FAST' ? 0.5 : 0.3;
+                
+                // 计算费用
+                const chargingFee = actualAmount * electricityPrice;
+                const serviceFee = actualAmount * serviceFeeRate;
+                const totalFee = chargingFee + serviceFee;
+                
                 // 更新充电记录
                 await this.prisma.chargingRecord.update({
                     where: { id: record.id },
                     data: {
                         actualAmount,
-                        chargingTime: chargingTimeMinutes / 60
+                        chargingTime: chargingTimeMinutes / 60,
+                        chargingFee,
+                        serviceFee,
+                        totalFee
                     }
                 });
                 // 检查是否充电完成
@@ -231,6 +257,8 @@ class ChargingSystemService {
                         progress: Math.floor((actualAmount / record.requestedAmount) * 100)
                     }
                 });
+                
+                console.log(`充电进度更新 - 详单号: ${record.recordNumber}, 实际充电量: ${actualAmount.toFixed(2)}度, 进度: ${Math.floor((actualAmount / record.requestedAmount) * 100)}%`);
             }
         }
         catch (error) {
@@ -249,10 +277,15 @@ class ChargingSystemService {
             });
             if (!record)
                 return;
+            // 使用虚拟时间
+            const currentTime = virtualTimeService_1.virtualTimeService.getCurrentTime();
+            
+            // 获取当前时段的电价
+            const electricityPrice = virtualTimeService_1.virtualTimeService.getElectricityPrice(currentTime);
+            const serviceFeeRate = record.chargingPile.type === 'FAST' ? 0.5 : 0.3;
+            
             // 重新计算实际费用
-            const chargingFeeRate = parseFloat((await this.getSystemConfig(record.chargingPile.type === 'FAST' ? 'charging_fee_fast' : 'charging_fee_slow')) || '1.0');
-            const serviceFeeRate = parseFloat((await this.getSystemConfig(record.chargingPile.type === 'FAST' ? 'service_fee_fast' : 'service_fee_slow')) || '0.5');
-            const actualChargingFee = record.actualAmount * chargingFeeRate;
+            const actualChargingFee = record.actualAmount * electricityPrice;
             const actualServiceFee = record.actualAmount * serviceFeeRate;
             const actualTotalFee = actualChargingFee + actualServiceFee;
             // 事务处理：完成充电并释放充电桩
@@ -261,7 +294,7 @@ class ChargingSystemService {
                 await tx.chargingRecord.update({
                     where: { id: recordId },
                     data: {
-                        endTime: new Date(),
+                        endTime: currentTime,
                         chargingFee: actualChargingFee,
                         serviceFee: actualServiceFee,
                         totalFee: actualTotalFee,
@@ -297,9 +330,9 @@ class ChargingSystemService {
             console.error('完成充电错误:', error);
         }
     }
-    // 生成充电详单编号
+    // 生成充电详单编号 - 使用虚拟时间
     async generateRecordNumber() {
-        const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+        const today = virtualTimeService_1.virtualTimeService.getCurrentTime().toISOString().split('T')[0].replace(/-/g, '');
         const count = await this.prisma.chargingRecord.count({
             where: {
                 recordNumber: {
@@ -351,11 +384,11 @@ class ChargingSystemService {
     async emergencyStopCharging(recordId, reason = '紧急停止') {
         try {
             await this.prisma.$transaction(async (tx) => {
-                // 更新充电记录
+                // 更新充电记录 - 使用虚拟时间
                 await tx.chargingRecord.update({
                     where: { id: recordId },
                     data: {
-                        endTime: new Date(),
+                        endTime: virtualTimeService_1.virtualTimeService.getCurrentTime(),
                         status: 'FAULT'
                     }
                 });

@@ -61,7 +61,10 @@ app.get('/api/health', (req, res) => {
 
 // 初始化服务
 const socketService = new SocketService(io);
-const chargingSystemService = new ChargingSystemService(socketService);
+
+// 初始化充电路由服务
+import { initializeServices as initializeChargingServices } from './routes/charging';
+initializeChargingServices(socketService);
 
 // 将io实例添加到app中，供路由使用
 app.set('io', io);
@@ -87,13 +90,11 @@ server.listen(PORT, () => {
   console.log(`📡 Socket.IO 服务已启动`);
   
   // 初始化充电系统
-  chargingSystemService.initialize().then(() => {
-    console.log('⚡ 充电调度系统已初始化');
-    
-    // 创建默认测试场景
-    testScriptService.createDefaultTestScenarios();
-    console.log('🧪 测试脚本服务已启动');
-  }).catch(console.error);
+  console.log('⚡ 充电调度系统已初始化');
+  
+  // 创建默认测试场景
+  testScriptService.createDefaultTestScenarios();
+  console.log('🧪 测试脚本服务已启动');
 });
 
 // 优雅关闭
