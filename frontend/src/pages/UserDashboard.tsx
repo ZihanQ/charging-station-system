@@ -27,6 +27,7 @@ interface QueueInfo {
   estimatedTime?: string;
   status?: string;
   chargingMode?: string;
+  requestedAmount?: number;
   chargingPile?: any;
 }
 
@@ -65,6 +66,7 @@ const UserDashboard: React.FC = () => {
   const [userStats, setUserStats] = useState<UserStats | null>(null);
   const [chargingRecords, setChargingRecords] = useState<ChargingRecord[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(false);
+  const [updateChargingRequestVisible, setUpdateChargingRequestVisible] = useState(false); // 新增状态
   const [pagination, setPagination] = useState({
     current: 1,
     pageSize: 10,
@@ -192,6 +194,7 @@ const UserDashboard: React.FC = () => {
       const response = await chargingAPI.getQueueStatus();
       const queueData = apiUtils.handleResponse<QueueInfo | null>(response);
       setQueueInfo(queueData);
+      console.log('loadQueueStatus: queueData received:', queueData);
     } catch (error) {
       console.error('获取排队状态失败:', error);
       // 不显示错误消息，避免干扰用户体验
@@ -271,33 +274,58 @@ const UserDashboard: React.FC = () => {
 
   // 取消充电请求
   const cancelChargingRequest = async () => {
-    if (!queueInfo?.queueNumber) return;
+    console.log('cancelChargingRequest 被调用, queueInfo:', queueInfo);
     
-    Modal.confirm({
-      title: '确认取消',
-      content: '您确定要取消当前的充电请求吗？',
-      okText: '确认',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await chargingAPI.cancelRequest(queueInfo.queueNumber!);
-          message.success('充电请求已取消');
-          
-          // 立即刷新所有相关数据
-          await Promise.all([
-            loadQueueStatus(),
-            loadUserStats()
-          ]);
-          
-          // 如果当前在充电记录页面，也刷新记录
-          if (activeMenu === 'records') {
-            loadChargingRecords();
-          }
-        } catch (error) {
-          message.error(apiUtils.handleError(error));
+    if (!queueInfo?.queueNumber) {
+      message.error('没有可取消的充电请求');
+      return;
+    }
+    
+    console.log('开始执行取消操作');
+    setLoading(true);
+    const loadingText = queueInfo.status === 'CHARGING' ? '正在停止充电...' : '正在取消充电请求...';
+    const loadingMessage = message.loading(loadingText, 0);
+    
+    try {
+      console.log('开始调用 cancelRequest API, queueNumber:', queueInfo.queueNumber);
+      const response = await chargingAPI.cancelRequest(queueInfo.queueNumber!);
+      console.log('cancelRequest API 响应:', response);
+      
+      loadingMessage();
+      
+      const successText = queueInfo.status === 'CHARGING' ? '充电已停止' : '充电请求已取消';
+      message.success(successText);
+      
+      // 清空队列信息状态
+      setQueueInfo(null);
+      
+      // 延迟刷新数据，确保后端状态已更新
+      setTimeout(async () => {
+        console.log('开始刷新数据...');
+        await Promise.all([
+          loadQueueStatus(),
+          loadUserStats()
+        ]);
+        
+        // 如果当前在充电记录页面，也刷新记录
+        if (activeMenu === 'records') {
+          loadChargingRecords();
         }
-      }
-    });
+        console.log('数据刷新完成');
+      }, 500);
+      
+    } catch (error) {
+      loadingMessage();
+      console.error('取消充电请求失败:', error);
+      console.error('错误详情:', JSON.stringify(error, null, 2));
+      message.error(apiUtils.handleError(error));
+      
+      // 发生错误时重新加载状态
+      await loadQueueStatus();
+    } finally {
+      setLoading(false);
+      console.log('取消充电操作完成，loading状态已重置');
+    }
   };
 
   const recordColumns = [
@@ -436,8 +464,20 @@ const UserDashboard: React.FC = () => {
                       size="large"
                       onClick={cancelChargingRequest}
                       className="w-full"
+                      loading={loading}
                     >
                       取消排队
+                    </Button>
+                  )}
+                  {queueInfo && queueInfo.status === 'CHARGING' && (
+                    <Button 
+                      danger
+                      size="large"
+                      onClick={cancelChargingRequest}
+                      className="w-full"
+                      loading={loading}
+                    >
+                      停止充电
                     </Button>
                   )}
                   <Button 
@@ -506,9 +546,45 @@ const UserDashboard: React.FC = () => {
               >
                 立即申请充电
               </Button>
-              {queueInfo && (queueInfo.status === 'WAITING' || queueInfo.status === 'IN_QUEUE') && (
-                <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-yellow-800">您已有进行中的充电请求，请等待完成后再提交新的请求</p>
+              {queueInfo && (queueInfo.status === 'WAITING' || queueInfo.status === 'IN_QUEUE' || queueInfo.status === 'CHARGING') && (
+                <div className="mt-6 space-y-4">
+                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p className="text-yellow-800 mb-3">
+                      您已有进行中的充电请求（{queueInfo.queueNumber}）
+                      {queueInfo.status === 'CHARGING' ? '，正在充电中' : '，排队等待中'}
+                    </p>
+                    <div className="flex justify-center space-x-4">
+                      {(queueInfo.status === 'WAITING' || queueInfo.status === 'IN_QUEUE') && (
+                        <>
+                          <Button 
+                            type="primary" 
+                            size="small"
+                            onClick={() => setUpdateChargingRequestVisible(true)}
+                          >
+                            修改请求
+                          </Button>
+                          <Button 
+                            danger 
+                            size="small"
+                            onClick={cancelChargingRequest}
+                            loading={loading}
+                          >
+                            取消排队
+                          </Button>
+                        </>
+                      )}
+                      {queueInfo.status === 'CHARGING' && (
+                        <Button 
+                          danger 
+                          size="small"
+                          onClick={cancelChargingRequest}
+                          loading={loading}
+                        >
+                          停止充电
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -518,6 +594,7 @@ const UserDashboard: React.FC = () => {
       case 'queue':
         return (
           <Card title="排队状态" className="shadow-lg">
+
             {queueInfo ? (
               <div className="text-center py-12">
                 <div className="mb-8">
@@ -561,6 +638,39 @@ const UserDashboard: React.FC = () => {
                     className="text-lg"
                   />
                 </div>
+                {/* 操作按钮 */}
+                {(queueInfo.status === 'WAITING' || queueInfo.status === 'IN_QUEUE' || queueInfo.status === 'CHARGING') && (
+                  <div className="mt-8 space-x-4">
+                    {(queueInfo.status === 'WAITING' || queueInfo.status === 'IN_QUEUE') && (
+                      <>
+                        <Button 
+                          type="primary" 
+                          onClick={() => setUpdateChargingRequestVisible(true)}
+                          disabled={loading}
+                        >
+                          修改请求
+                        </Button>
+                        <Button 
+                          danger 
+                          onClick={cancelChargingRequest}
+                          loading={loading}
+                        >
+                          取消请求
+                        </Button>
+                      </>
+                    )}
+                    {queueInfo.status === 'CHARGING' && (
+                      <Button 
+                        danger 
+                        onClick={cancelChargingRequest}
+                        loading={loading}
+                        size="large"
+                      >
+                        停止充电
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-center py-12">
@@ -604,6 +714,35 @@ const UserDashboard: React.FC = () => {
       
       default:
         return null;
+    }
+  };
+
+  const onUpdateChargingRequest = async (values: any) => {
+    if (!queueInfo?.queueNumber) {
+      message.error('当前没有进行中的充电请求');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await chargingAPI.updateChargingRequest(
+        queueInfo.queueNumber!,
+        {
+          requestedAmount: values.requestedAmount,
+          chargingMode: values.chargingMode
+        }
+      );
+      apiUtils.handleResponse(response);
+      message.success('充电请求已修改');
+      setUpdateChargingRequestVisible(false);
+      await Promise.all([
+        loadQueueStatus(),
+        loadUserStats()
+      ]);
+    } catch (error) {
+      message.error(apiUtils.handleError(error));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -664,6 +803,58 @@ const UserDashboard: React.FC = () => {
             </Button>
             <Button type="primary" htmlType="submit" loading={loading}>
               提交请求
+            </Button>
+          </div>
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+
+  const UpdateChargingRequestModal = () => (
+    <Modal
+      title="修改充电请求"
+      open={updateChargingRequestVisible}
+      onCancel={() => setUpdateChargingRequestVisible(false)}
+      footer={null}
+      width={600}
+    >
+      <Form
+        layout="vertical"
+        onFinish={onUpdateChargingRequest}
+        initialValues={{
+          requestedAmount: queueInfo?.requestedAmount,
+          chargingMode: queueInfo?.chargingMode
+        }}
+      >
+        <Form.Item
+          label="请求充电量 (kWh)"
+          name="requestedAmount"
+          rules={[
+            { required: true, message: '请输入请求充电量' },
+            { type: 'number', min: 1, max: 100, message: '充电量应在1-100kWh之间' }
+          ]}
+        >
+          <Input type="number" placeholder="请输入需要充电的电量" suffix="kWh" />
+        </Form.Item>
+
+        <Form.Item
+          label="充电模式"
+          name="chargingMode"
+          rules={[{ required: true, message: '请选择充电模式' }]}
+        >
+          <Select placeholder="请选择充电模式">
+            <Option value="FAST">快充 (30kW)</Option>
+            <Option value="SLOW">慢充 (7kW)</Option>
+          </Select>
+        </Form.Item>
+
+        <Form.Item className="mb-0">
+          <div className="flex justify-end space-x-2">
+            <Button onClick={() => setUpdateChargingRequestVisible(false)}>
+              取消
+            </Button>
+            <Button type="primary" htmlType="submit" loading={loading}>
+              提交修改
             </Button>
           </div>
         </Form.Item>
@@ -811,8 +1002,9 @@ const UserDashboard: React.FC = () => {
       </Layout>
 
       <ChargingRequestModal />
+      <UpdateChargingRequestModal />
     </Layout>
   );
 };
 
-export default UserDashboard; 
+export default UserDashboard;

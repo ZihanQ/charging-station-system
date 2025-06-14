@@ -25,6 +25,7 @@ export class WebSocketService {
           this.socket?.emit('join_admin');
         } else {
           this.socket?.emit('user_login', userId);
+          console.log(`用户 ${userId} 已加入房间 user_${userId}`);
         }
       }
     });
@@ -58,6 +59,22 @@ export class WebSocketService {
         message.success(`充电已完成！总费用：¥${data.data.totalFee}`);
         window.dispatchEvent(new CustomEvent('chargingComplete', { detail: data.data }));
       }
+    });
+
+    // 直接监听队列更新事件 - 添加这个来处理取消充电
+    this.socket.on('queueUpdate', (data) => {
+      console.log('收到queueUpdate事件:', data);
+      if (data.type === 'cancelled') {
+        message.success(data.message || '充电请求已取消');
+      }
+      window.dispatchEvent(new CustomEvent('queueUpdate', { detail: data }));
+    });
+
+    // 直接监听充电开始事件
+    this.socket.on('chargingStart', (data) => {
+      console.log('收到chargingStart事件:', data);
+      message.success(data.message || '您的充电已开始！');
+      window.dispatchEvent(new CustomEvent('chargingStart', { detail: data }));
     });
 
     // 管理员通知

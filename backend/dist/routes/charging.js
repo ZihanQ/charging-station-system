@@ -15,6 +15,11 @@ const chargingRequestSchema = joi_1.default.object({
     requestedAmount: joi_1.default.number().min(1).max(100).required(),
     chargingMode: joi_1.default.string().valid('FAST', 'SLOW').required()
 });
+// 修改充电请求验证模式
+const updateChargingRequestSchema = joi_1.default.object({
+    requestedAmount: joi_1.default.number().min(1).max(100).optional(),
+    chargingMode: joi_1.default.string().valid('FAST', 'SLOW').optional()
+}).or('requestedAmount', 'chargingMode');
 // 应用认证中间件到所有路由
 router.use(auth_1.authenticateToken);
 // 提交充电请求
@@ -209,32 +214,289 @@ router.get('/records', async (req, res) => {
         });
     }
 });
-// 取消充电请求
-router.delete('/request/:queueNumber', async (req, res) => {
+// 修改充电请求
+router.put('/request/:queueNumber', async (req, res) => {
     try {
         const { queueNumber } = req.params;
         const userId = req.user.id;
-        // 查找排队记录
+        const { error, value } = updateChargingRequestSchema.validate(req.body);
+        if (error) {
+            return res.status(400).json({
+                success: false,
+                message: '输入数据验证失败',
+                details: error.details[0].message
+            });
+        }
+        const { requestedAmount, chargingMode } = value;
         const queueRecord = await prisma.queueRecord.findFirst({
             where: {
                 queueNumber,
                 userId,
-                status: {
-                    in: ['WAITING', 'IN_QUEUE']
-                }
+                status: { in: ['WAITING', 'IN_QUEUE'] } // 只能在等候区或充电桩队列中修改
             }
         });
         if (!queueRecord) {
             return res.status(404).json({
                 success: false,
-                message: '未找到可取消的充电请求'
+                message: '未找到可修改的充电请求或当前状态不允许修改'
             });
         }
-        // 更新状态为已取消
+        // 如果在充电中，不允许修改，只能取消
+        if (queueRecord.status === 'CHARGING') {
+            return res.status(400).json({
+                success: false,
+                message: '充电中不允许修改请求，请先取消充电'
+            });
+        }
+        let newQueueNumber = queueRecord.queueNumber;
+        let newPosition = queueRecord.position;
+        // 修改充电模式
+        if (chargingMode && chargingMode !== queueRecord.chargingMode) {
+            // 只能在WAITING状态下修改模式
+            if (queueRecord.status !== 'WAITING') {
+                return res.status(400).json({
+                    success: false,
+                    message: '当前状态不允许修改充电模式，请先取消充电'
+                });
+            }
+            newQueueNumber = await generateQueueNumber(chargingMode);
+            newPosition = await getQueuePosition(chargingMode);
+        }
+        // 更新排队记录
         await prisma.queueRecord.update({
             where: { id: queueRecord.id },
-            data: { status: 'CANCELLED' }
+            data: {
+                requestedAmount: requestedAmount || queueRecord.requestedAmount,
+                chargingMode: chargingMode || queueRecord.chargingMode,
+                queueNumber: newQueueNumber,
+                position: newPosition,
+                updatedAt: new Date()
+            }
         });
+        res.json({
+            success: true,
+            message: '充电请求已修改',
+            data: {
+                queueNumber: newQueueNumber,
+                position: newPosition,
+                estimatedTime: calculateEstimatedWaitTime(chargingMode || queueRecord.chargingMode, newPosition),
+                status: queueRecord.status
+            }
+        });
+    }
+    catch (error) {
+        console.error('修改充电请求错误:', error);
+        res.status(500).json({
+            success: false,
+            message: '修改请求失败，请稍后重试'
+        });
+    }
+});
+// 取消充电请求
+router.delete('/request/:queueNumber', async (req, res) => {
+    try {
+        const { queueNumber } = req.params;
+        const userId = req.user.id;
+        console.log(`取消充电请求 - 用户ID: ${userId}, 排队号码: ${queueNumber}`);
+        // 首先查找所有匹配queueNumber的记录（不限制userId）
+        const allMatchingRecords = await prisma.queueRecord.findMany({
+            where: {
+                queueNumber
+            },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        username: true,
+                        email: true
+                    }
+                }
+            }
+        });
+        console.log('所有匹配queueNumber的记录:', allMatchingRecords);
+        // 查找当前用户的所有记录
+        const userRecords = await prisma.queueRecord.findMany({
+            where: {
+                userId
+            },
+            orderBy: {
+                createdAt: 'desc'
+            },
+            take: 5
+        });
+        console.log('当前用户最近的5条记录:', userRecords);
+        // 简化查询条件 - 只要是当前用户的记录且queueNumber匹配就可以取消
+        const queueRecord = await prisma.queueRecord.findFirst({
+            where: {
+                queueNumber,
+                userId
+            },
+            include: {
+                user: {
+                    select: {
+                        username: true
+                    }
+                },
+                chargingPile: {
+                    select: {
+                        name: true,
+                        type: true
+                    }
+                }
+            }
+        });
+        console.log('查找到的排队记录:', queueRecord);
+        if (!queueRecord) {
+            console.log('未找到可取消的充电请求 - 详细信息:');
+            console.log(`- 查询queueNumber: ${queueNumber}`);
+            console.log(`- 查询userId: ${userId}`);
+            return res.status(404).json({
+                success: false,
+                message: '未找到可取消的充电请求',
+                debug: {
+                    queueNumber,
+                    userId,
+                    allMatchingRecords: allMatchingRecords.length,
+                    userRecords: userRecords.length
+                }
+            });
+        }
+        console.log(`当前状态: ${queueRecord.status}`);
+        // 如果已经是取消状态，直接返回成功
+        if (queueRecord.status === 'CANCELLED') {
+            console.log('记录已经是取消状态，直接返回成功');
+            return res.json({
+                success: true,
+                message: '充电请求已取消'
+            });
+        }
+        // 如果用户正在充电，需要停止充电并释放充电桩
+        if (queueRecord.status === 'CHARGING') {
+            console.log('用户正在充电，开始停止充电流程...');
+            // 查找对应的充电记录
+            const chargingRecord = await prisma.chargingRecord.findFirst({
+                where: {
+                    userId,
+                    chargingPileId: queueRecord.chargingPileId || undefined,
+                    status: 'CHARGING'
+                }
+            });
+            console.log('查找到的充电记录:', chargingRecord);
+            if (chargingRecord) {
+                // 计算实际充电费用
+                const chargingTime = (new Date().getTime() - new Date(chargingRecord.startTime).getTime()) / (1000 * 60); // 分钟
+                const actualAmount = Math.min(chargingRecord.requestedAmount, chargingTime * 0.5); // 简化计算
+                const chargingFeeRate = queueRecord.chargingMode === 'FAST' ? 1.0 : 0.8;
+                const serviceFeeRate = queueRecord.chargingMode === 'FAST' ? 0.5 : 0.3;
+                const chargingFee = actualAmount * chargingFeeRate;
+                const serviceFee = actualAmount * serviceFeeRate;
+                const totalFee = chargingFee + serviceFee;
+                console.log(`计算费用 - 充电时长: ${chargingTime}分钟, 实际充电量: ${actualAmount}度, 总费用: ${totalFee}元`);
+                // 更新充电记录
+                await prisma.chargingRecord.update({
+                    where: { id: chargingRecord.id },
+                    data: {
+                        endTime: new Date(),
+                        actualAmount,
+                        chargingTime: chargingTime / 60,
+                        chargingFee,
+                        serviceFee,
+                        totalFee,
+                        status: 'CANCELLED'
+                    }
+                });
+                console.log('充电记录已更新为取消状态');
+            }
+        }
+        // 更新队列记录状态为已取消
+        await prisma.queueRecord.update({
+            where: { id: queueRecord.id },
+            data: {
+                status: 'CANCELLED',
+                updatedAt: new Date()
+            }
+        });
+        console.log('队列记录已更新为取消状态');
+        // 如果取消的是正在充电的记录，需要重新安排队列
+        if (queueRecord.status === 'CHARGING' && queueRecord.chargingPileId) {
+            console.log('开始重新安排队列...');
+            // 查找同类型的下一个等待充电的用户
+            const nextInQueue = await prisma.queueRecord.findFirst({
+                where: {
+                    chargingMode: queueRecord.chargingMode,
+                    status: 'IN_QUEUE',
+                    chargingPileId: queueRecord.chargingPileId
+                },
+                orderBy: {
+                    position: 'asc'
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            username: true
+                        }
+                    }
+                }
+            });
+            console.log('下一个排队用户:', nextInQueue);
+            if (nextInQueue) {
+                // 立即开始为下一个用户充电
+                const recordNumber = await generateRecordNumber();
+                await prisma.$transaction(async (tx) => {
+                    // 创建新的充电记录
+                    await tx.chargingRecord.create({
+                        data: {
+                            recordNumber,
+                            userId: nextInQueue.userId,
+                            chargingPileId: queueRecord.chargingPileId,
+                            requestedAmount: nextInQueue.requestedAmount,
+                            actualAmount: 0,
+                            chargingTime: 0,
+                            startTime: new Date(),
+                            chargingFee: 0,
+                            serviceFee: 0,
+                            totalFee: 0,
+                            status: 'CHARGING'
+                        }
+                    });
+                    // 更新队列记录状态
+                    await tx.queueRecord.update({
+                        where: { id: nextInQueue.id },
+                        data: { status: 'CHARGING' }
+                    });
+                });
+                console.log(`已为下一个用户(${nextInQueue.user.username})开始充电，详单号: ${recordNumber}`);
+                // 通知下一个用户开始充电
+                const io = req.app.get('io');
+                if (io) {
+                    io.to(`user_${nextInQueue.userId}`).emit('chargingStart', {
+                        queueNumber: nextInQueue.queueNumber,
+                        chargingPile: queueRecord.chargingPile?.name,
+                        recordNumber,
+                        message: '您的充电已开始'
+                    });
+                    console.log('已通知下一个用户开始充电');
+                }
+                else {
+                    console.log('io实例未找到，无法发送WebSocket通知');
+                }
+            }
+        }
+        // 通知用户充电请求已取消
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`user_${userId}`).emit('queueUpdate', {
+                type: 'cancelled',
+                queueNumber: queueRecord.queueNumber,
+                message: '充电请求已取消'
+            });
+            console.log('已通知用户充电请求已取消');
+        }
+        else {
+            console.log('io实例未找到，无法发送取消通知');
+        }
+        console.log('取消充电请求处理完成');
         res.json({
             success: true,
             message: '充电请求已取消'
@@ -244,7 +506,8 @@ router.delete('/request/:queueNumber', async (req, res) => {
         console.error('取消充电请求错误:', error);
         res.status(500).json({
             success: false,
-            message: '取消请求失败'
+            message: '取消请求失败',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 });
@@ -293,19 +556,31 @@ router.get('/piles', async (req, res) => {
 // 辅助函数：生成排队号码
 async function generateQueueNumber(chargingMode) {
     const prefix = chargingMode === 'FAST' ? 'F' : 'T';
-    const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
-    // 获取今天已生成的同类型排队号码数量
-    const count = await prisma.queueRecord.count({
-        where: {
-            queueNumber: {
-                startsWith: prefix
-            },
-            createdAt: {
-                gte: new Date(new Date().setHours(0, 0, 0, 0))
+    // 最多尝试10次生成唯一的排队号码
+    for (let attempt = 1; attempt <= 10; attempt++) {
+        // 获取今天已生成的同类型排队号码数量
+        const count = await prisma.queueRecord.count({
+            where: {
+                queueNumber: {
+                    startsWith: prefix
+                },
+                createdAt: {
+                    gte: new Date(new Date().setHours(0, 0, 0, 0))
+                }
             }
+        });
+        const queueNumber = `${prefix}${count + attempt}`;
+        // 检查这个号码是否已存在
+        const existing = await prisma.queueRecord.findUnique({
+            where: { queueNumber }
+        });
+        if (!existing) {
+            return queueNumber;
         }
-    });
-    return `${prefix}${count + 1}`;
+    }
+    // 如果10次都失败了，使用时间戳作为后缀
+    const timestamp = Date.now().toString().slice(-4);
+    return `${prefix}${timestamp}`;
 }
 // 辅助函数：获取队列位置
 async function getQueuePosition(chargingMode) {
@@ -352,5 +627,17 @@ function calculateEstimatedWaitTime(chargingMode, position) {
         const minutes = estimatedMinutes % 60;
         return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
     }
+}
+// 辅助函数：生成充电详单编号
+async function generateRecordNumber() {
+    const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const count = await prisma.chargingRecord.count({
+        where: {
+            recordNumber: {
+                startsWith: `CR${today}`
+            }
+        }
+    });
+    return `CR${today}${(count + 1).toString().padStart(4, '0')}`;
 }
 exports.default = router;

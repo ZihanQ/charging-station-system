@@ -50,6 +50,8 @@ app.get('/api/health', (req, res) => {
 // 初始化服务
 const socketService = new socketService_1.SocketService(io);
 const chargingSystemService = new chargingSystemService_1.ChargingSystemService(socketService);
+// 将io实例添加到app中，供路由使用
+app.set('io', io);
 // 错误处理中间件
 app.use((err, req, res, next) => {
     console.error(err.stack);

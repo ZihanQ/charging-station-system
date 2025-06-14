@@ -21,21 +21,31 @@ apiClient.interceptors.request.use(
     if (config.url?.includes('/admin/')) {
       // 管理员API请求，使用管理员token
       token = authService.getToken('ADMIN');
+      console.log('[API] 使用管理员token');
     } else {
       // 普通API请求，优先使用普通用户token，如果没有则使用管理员token
       token = authService.getToken('USER');
       if (!token) {
         token = authService.getToken('ADMIN');
+        console.log('[API] 用户token不存在，使用管理员token');
+      } else {
+        console.log('[API] 使用用户token');
       }
     }
     
+    console.log(`[API] 请求: ${config.method?.toUpperCase()} ${config.url}`);
+    console.log(`[API] Token存在: ${!!token}, Token前20字符: ${token ? token.substring(0, 20) + '...' : 'null'}`);
+    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    } else {
+      console.warn('[API] 警告: 没有找到可用的token!');
     }
     
     return config;
   },
   (error) => {
+    console.error('[API] 请求拦截器错误:', error);
     return Promise.reject(error);
   }
 );
@@ -104,6 +114,9 @@ export const chargingAPI = {
   
   getRecords: (page: number = 1, limit: number = 10) =>
     apiClient.get(`/charging/records?page=${page}&limit=${limit}`),
+  
+  updateChargingRequest: (queueNumber: string, data: { requestedAmount?: number; chargingMode?: string }) =>
+    apiClient.put(`/charging/request/${queueNumber}`, data),
 };
 
 // 管理员相关API
@@ -128,4 +141,4 @@ export const adminAPI = {
     apiClient.put(`/admin/users/${userId}/status`, { status }),
 };
 
-export default apiClient; 
+export default apiClient;

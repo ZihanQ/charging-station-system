@@ -55,6 +55,9 @@ app.get('/api/health', (req, res) => {
 const socketService = new SocketService(io);
 const chargingSystemService = new ChargingSystemService(socketService);
 
+// 将io实例添加到app中，供路由使用
+app.set('io', io);
+
 // 错误处理中间件
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error(err.stack);
