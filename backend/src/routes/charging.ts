@@ -689,7 +689,7 @@ router.get('/piles', async (req: Request, res: Response) => {
   }
 });
 
-// 辅助函数：生成排队号码
+// 辅助函数：生成排队号码 - 适配数据库VARCHAR(10)限制
 async function generateQueueNumber(chargingMode: 'FAST' | 'SLOW'): Promise<string> {
   const prefix = chargingMode === 'FAST' ? 'F' : 'T';
   
@@ -707,7 +707,22 @@ async function generateQueueNumber(chargingMode: 'FAST' | 'SLOW'): Promise<strin
       }
     });
 
-    const queueNumber = `${prefix}${count + attempt}`;
+    // 生成格式：F1, F2, F3... 或 T1, T2, T3...
+    // 如果当天数量超过999，使用随机4位数字
+    let queueNumber: string;
+    if (count < 999) {
+      queueNumber = `${prefix}${count + attempt}`;
+    } else {
+      // 使用4位随机数字，确保不超过10字符限制
+      const randomNum = Math.floor(Math.random() * 9000) + 1000; // 1000-9999
+      queueNumber = `${prefix}${randomNum}`;
+    }
+    
+    // 确保不超过10字符限制
+    if (queueNumber.length > 10) {
+      console.warn(`生成的排队号码长度超过限制: ${queueNumber}，长度: ${queueNumber.length}`);
+      continue;
+    }
     
     // 检查这个号码是否已存在
     const existing = await prisma.queueRecord.findUnique({
@@ -719,8 +734,8 @@ async function generateQueueNumber(chargingMode: 'FAST' | 'SLOW'): Promise<strin
     }
   }
   
-  // 如果10次都失败了，使用时间戳作为后缀
-  const timestamp = Date.now().toString().slice(-4);
+  // 如果10次都失败了，使用较短的时间戳作为后缀
+  const timestamp = Date.now().toString().slice(-3); // 只取最后3位
   return `${prefix}${timestamp}`;
 }
 

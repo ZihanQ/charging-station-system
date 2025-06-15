@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Card, Table, Button, Modal, Form, Input, Select, DatePicker, 
-  message, Space, Tag, Switch, Popconfirm, Typography, Statistic 
+  Card, Table, Button, Modal, Form, Input, Select, DatePicker, InputNumber,
+  message, Space, Tag, Switch, Popconfirm, Typography, Statistic,
+  List, Drawer, Divider
 } from 'antd';
 import { 
   PlayCircleOutlined, PauseCircleOutlined, PlusOutlined, 
   DeleteOutlined, EditOutlined, ExperimentOutlined,
-  ReloadOutlined, UserOutlined
+  ReloadOutlined, UserOutlined,
+  FileTextOutlined, DownloadOutlined, EyeOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiClient, { apiUtils } from '../services/api';
@@ -14,6 +16,7 @@ import apiClient, { apiUtils } from '../services/api';
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 const { Option } = Select;
+const { confirm } = Modal;
 
 interface TestTask {
   id: string;
@@ -49,6 +52,11 @@ const TestScriptManager: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingScript, setEditingScript] = useState<TestScript | null>(null);
   const [form] = Form.useForm();
+  
+  // 状态记录文件相关状态
+  const [statusLogs, setStatusLogs] = useState<any[]>([]);
+  const [logsDrawerVisible, setLogsDrawerVisible] = useState(false);
+  const [logContentModal, setLogContentModal] = useState({ visible: false, content: '', filename: '' });
 
   // 获取测试脚本列表
   const fetchScripts = async () => {
@@ -184,10 +192,184 @@ const TestScriptManager: React.FC = () => {
     setLoading(false);
   };
 
+  // 清理测试数据
+  const cleanupTestData = async () => {
+    setLoading(true);
+    try {
+      const response = await apiClient.post('/test-script/cleanup-test-data');
+      
+      if (response.data.success) {
+        message.success(`测试数据清理完成 - 清理了 ${response.data.data.deletedQueueRecords} 条排队记录和 ${response.data.data.deletedChargingRecords} 条充电记录`);
+        fetchScripts();
+        fetchStatus();
+      } else {
+        message.error(response.data.message || '清理失败');
+      }
+    } catch (error: any) {
+      message.error(apiUtils.handleError(error));
+    }
+    setLoading(false);
+  };
+
   // 打开创建模态框
   const openModal = () => {
     form.resetFields();
     setModalVisible(true);
+  };
+
+  // 获取状态记录文件列表
+  const fetchStatusLogs = async () => {
+    try {
+      const response = await apiClient.get('/test-script/status-logs');
+      if (response.data.success) {
+        setStatusLogs(response.data.data.files || []);
+      }
+    } catch (error) {
+      console.error('获取状态记录文件失败:', error);
+    }
+  };
+
+  // 查看状态记录文件内容
+  const viewLogContent = async (filename: string) => {
+    try {
+      setLoading(true);
+      const response = await apiClient.get(`/test-script/status-logs/${filename}`);
+      if (response.data.success) {
+        setLogContentModal({
+          visible: true,
+          content: response.data.data.content,
+          filename
+        });
+      } else {
+        message.error('读取文件失败');
+      }
+    } catch (error) {
+      message.error(apiUtils.handleError(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 下载状态记录文件
+  const downloadLogFile = async (filename: string) => {
+    try {
+      const response = await apiClient.get(`/test-script/status-logs/${filename}`);
+      if (response.data.success) {
+        // 创建下载链接
+        const blob = new Blob([response.data.data.content], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        message.success('文件下载成功');
+      }
+    } catch (error) {
+      message.error('下载文件失败');
+    }
+  };
+
+  // 打开状态记录抽屉
+  const openLogsDrawer = () => {
+    setLogsDrawerVisible(true);
+    fetchStatusLogs();
+  };
+
+  // 删除单个状态记录文件
+  const deleteLogFile = async (filename: string) => {
+    console.log('deleteLogFile 开始执行，文件名:', filename);
+    try {
+      const response = await apiClient.delete(`/test-script/status-logs/${filename}`);
+      console.log('删除文件API响应:', response.data);
+      
+      if (response.data.success) {
+        message.success(response.data.message);
+        fetchStatusLogs(); // 刷新文件列表
+      } else {
+        message.error(response.data.message || '删除文件失败');
+      }
+    } catch (error: any) {
+      console.error('删除状态记录文件失败:', error);
+      message.error(apiUtils.handleError(error));
+    }
+  };
+
+  // 删除所有状态记录文件
+  const deleteAllLogFiles = async () => {
+    console.log('deleteAllLogFiles 开始执行');
+    try {
+      const response = await apiClient.delete('/test-script/status-logs');
+      console.log('删除所有文件API响应:', response.data);
+      
+      if (response.data.success) {
+        message.success(response.data.message);
+        fetchStatusLogs(); // 刷新文件列表
+      } else {
+        message.error(response.data.message || '删除文件失败');
+      }
+    } catch (error: any) {
+      console.error('删除所有状态记录文件失败:', error);
+      message.error(apiUtils.handleError(error));
+    }
+  };
+
+  // 确认删除所有文件
+  const confirmDeleteAllLogs = () => {
+    console.log('confirmDeleteAllLogs 被调用');
+    
+    // 先测试简单的alert
+    if (window.confirm('确认删除所有状态记录文件吗？')) {
+      console.log('用户确认删除所有文件');
+      deleteAllLogFiles();
+    } else {
+      console.log('用户取消删除');
+    }
+    
+    // 注释掉Modal.confirm暂时测试
+    /*
+    confirm({
+      title: '确认删除所有状态记录文件',
+      content: '此操作将删除所有状态记录文件，且无法恢复。确定要继续吗？',
+      okText: '确定删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: () => {
+        console.log('用户确认删除所有文件');
+        deleteAllLogFiles();
+      },
+    });
+    */
+  };
+
+  // 确认删除单个文件
+  const confirmDeleteLogFile = (filename: string) => {
+    console.log('confirmDeleteLogFile 被调用，文件名:', filename);
+    
+    // 先测试简单的alert
+    if (window.confirm(`确认删除文件 "${filename}" 吗？`)) {
+      console.log('用户确认删除文件:', filename);
+      deleteLogFile(filename);
+    } else {
+      console.log('用户取消删除文件:', filename);
+    }
+    
+    // 注释掉Modal.confirm暂时测试
+    /*
+    confirm({
+      title: '确认删除文件',
+      content: `确定要删除文件 "${filename}" 吗？此操作无法恢复。`,
+      okText: '确定删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: () => {
+        console.log('用户确认删除文件:', filename);
+        deleteLogFile(filename);
+      },
+    });
+    */
   };
 
   useEffect(() => {
@@ -311,6 +493,12 @@ const TestScriptManager: React.FC = () => {
         extra={
           <Space>
             <Button 
+              icon={<FileTextOutlined />}
+              onClick={openLogsDrawer}
+            >
+              状态记录
+            </Button>
+            <Button 
               icon={<ReloadOutlined />}
               onClick={() => {
                 fetchScripts();
@@ -332,6 +520,20 @@ const TestScriptManager: React.FC = () => {
             >
               重置任务状态
             </Button>
+            <Popconfirm
+              title="确认清理测试数据？"
+              description="这将删除所有测试用户的排队记录和充电记录，此操作不可恢复。"
+              onConfirm={cleanupTestData}
+              okText="确认清理"
+              cancelText="取消"
+            >
+              <Button 
+                loading={loading}
+                danger
+              >
+                清理测试数据
+              </Button>
+            </Popconfirm>
             <Button 
               type="primary"
               icon={<PlusOutlined />}
@@ -349,6 +551,125 @@ const TestScriptManager: React.FC = () => {
           loading={loading}
         />
       </Card>
+
+      {/* 状态记录文件抽屉 */}
+      <Drawer
+        title="状态记录文件"
+        width={800}
+        onClose={() => setLogsDrawerVisible(false)}
+        open={logsDrawerVisible}
+      >
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <Text>
+              状态记录文件会在虚拟时间的整点和半点自动生成，记录所有充电桩和排队状态
+            </Text>
+            <div className="space-x-2">
+              <Button icon={<ReloadOutlined />} onClick={fetchStatusLogs}>
+                刷新
+              </Button>
+              {statusLogs.length > 0 && (
+                <Button 
+                  danger 
+                  icon={<DeleteOutlined />} 
+                  onClick={() => {
+                    console.log('删除全部按钮被点击');
+                    confirmDeleteAllLogs();
+                  }}
+                >
+                  删除全部
+                </Button>
+              )}
+            </div>
+          </div>
+          
+          <Divider />
+          
+          {statusLogs.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <FileTextOutlined style={{ fontSize: 48, marginBottom: 16 }} />
+              <div>还没有生成状态记录文件</div>
+              <div className="text-sm">启动测试脚本后，在整点或半点时会自动生成</div>
+            </div>
+          ) : (
+            <List
+              dataSource={statusLogs}
+              renderItem={(item) => (
+                <List.Item
+                  actions={[
+                    <Button 
+                      size="small" 
+                      icon={<EyeOutlined />}
+                      onClick={() => viewLogContent(item.filename)}
+                    >
+                      查看
+                    </Button>,
+                    <Button 
+                      size="small" 
+                      icon={<DownloadOutlined />}
+                      onClick={() => downloadLogFile(item.filename)}
+                    >
+                      下载
+                    </Button>,
+                    <Button 
+                      size="small" 
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => {
+                        console.log('删除按钮被点击，文件名:', item.filename);
+                        confirmDeleteLogFile(item.filename);
+                      }}
+                    >
+                      删除
+                    </Button>
+                  ]}
+                >
+                  <List.Item.Meta
+                    avatar={<FileTextOutlined style={{ fontSize: 20, color: '#1890ff' }} />}
+                    title={item.filename}
+                    description={
+                      <div>
+                        <div>大小: {(item.size / 1024).toFixed(1)} KB</div>
+                        <div>创建时间: {dayjs(item.createdAt).format('YYYY-MM-DD HH:mm:ss')}</div>
+                      </div>
+                    }
+                  />
+                </List.Item>
+              )}
+            />
+          )}
+        </div>
+      </Drawer>
+
+      {/* 状态记录文件内容模态框 */}
+      <Modal
+        title={`状态记录文件: ${logContentModal.filename}`}
+        open={logContentModal.visible}
+        onCancel={() => setLogContentModal({ visible: false, content: '', filename: '' })}
+        width={1000}
+        footer={[
+          <Button key="download" icon={<DownloadOutlined />} onClick={() => downloadLogFile(logContentModal.filename)}>
+            下载文件
+          </Button>,
+          <Button key="close" onClick={() => setLogContentModal({ visible: false, content: '', filename: '' })}>
+            关闭
+          </Button>
+        ]}
+      >
+        <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
+          <pre style={{ 
+            whiteSpace: 'pre-wrap', 
+            fontFamily: 'monospace', 
+            fontSize: '12px',
+            lineHeight: '1.4',
+            background: '#f5f5f5',
+            padding: '16px',
+            borderRadius: '4px'
+          }}>
+            {logContentModal.content}
+          </pre>
+        </div>
+      </Modal>
 
       {/* 创建脚本模态框 */}
       <Modal
