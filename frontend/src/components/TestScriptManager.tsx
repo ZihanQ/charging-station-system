@@ -196,12 +196,17 @@ const TestScriptManager: React.FC = () => {
     
     // 每10秒更新一次状态
     const interval = setInterval(() => {
+      // 如果模态框打开，跳过自动刷新，避免中断用户编辑
+      if (modalVisible) {
+        return;
+      }
+      
       fetchScripts();
       fetchStatus();
     }, 10000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [modalVisible]); // 添加 modalVisible 依赖
 
   const columns = [
     {

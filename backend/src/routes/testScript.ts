@@ -66,6 +66,8 @@ router.post('/scripts', authenticateToken, requireAdmin, (req: Request, res: Res
       tasks: tasks.map((task: any) => ({
         ...task,
         id: `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        triggerTime: new Date(task.triggerTime),
+        requestedAmount: parseFloat(task.requestedAmount),
         isExecuted: false
       }))
     });
@@ -199,6 +201,50 @@ router.get('/status', authenticateToken, requireAdmin, (req: Request, res: Respo
     res.status(500).json({
       success: false,
       message: '获取测试脚本服务状态失败'
+    });
+  }
+});
+
+// 获取详细的调试信息
+router.get('/debug-info', authenticateToken, requireAdmin, (req: Request, res: Response) => {
+  try {
+    const scripts = testScriptService.getAllScripts();
+    const status = testScriptService.getStatus();
+    
+    // 引入虚拟时间服务来获取当前时间
+    const { virtualTimeService } = require('../services/virtualTimeService');
+    const currentTime = virtualTimeService.getCurrentTime();
+    const timeStatus = virtualTimeService.getStatus();
+    
+    // 计算每个任务的执行状态
+    const taskDetails = scripts.map(script => ({
+      ...script,
+      tasks: script.tasks.map(task => {
+        const timeDiff = task.triggerTime.getTime() - currentTime.getTime();
+        return {
+          ...task,
+          triggerTimeFormatted: task.triggerTime.toLocaleString('zh-CN'),
+          timeUntilExecution: Math.round(timeDiff / 1000),
+          shouldExecute: currentTime >= task.triggerTime,
+          executedAtFormatted: task.executedAt ? task.executedAt.toLocaleString('zh-CN') : null
+        };
+      })
+    }));
+    
+    res.json({
+      success: true,
+      data: {
+        serviceStatus: status,
+        virtualTimeStatus: timeStatus,
+        currentVirtualTime: currentTime.toLocaleString('zh-CN'),
+        scripts: taskDetails
+      }
+    });
+  } catch (error) {
+    console.error('获取调试信息错误:', error);
+    res.status(500).json({
+      success: false,
+      message: '获取调试信息失败'
     });
   }
 });

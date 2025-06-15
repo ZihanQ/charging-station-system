@@ -249,6 +249,11 @@ const AdminDashboard: React.FC = () => {
     
     // 设置定时刷新，确保能及时看到新的充电申请
     const interval = setInterval(() => {
+      // 如果在测试脚本页面，跳过自动刷新，避免中断用户操作
+      if (activeMenu === 'test-scripts') {
+        return;
+      }
+      
       fetchDashboardData();
       // 如果在排队管理页面，也刷新排队数据
       if (activeMenu === 'queue') {
@@ -257,7 +262,7 @@ const AdminDashboard: React.FC = () => {
     }, 10000); // 每10秒刷新一次
 
     return () => clearInterval(interval);
-  }, []);
+  }, [activeMenu]); // 添加 activeMenu 依赖
 
   useEffect(() => {
     if (activeMenu === 'piles') {

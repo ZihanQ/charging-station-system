@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { virtualTimeService } from './virtualTimeService';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -114,14 +115,24 @@ export class TestScriptService {
 
     const currentTime = virtualTimeService.getCurrentTime();
     
-    for (const script of this.scripts) {
-      if (!script.isActive) continue;
+    // 检查是否有活跃的脚本
+    const activeScripts = this.scripts.filter(s => s.isActive);
+    if (activeScripts.length === 0) return;
+    
+    // 只在有活跃脚本时输出时间日志
+    console.log(`[测试脚本] 当前虚拟时间: ${currentTime.toLocaleString('zh-CN')}`);
+    
+    for (const script of activeScripts) {
+      console.log(`[测试脚本] 检查脚本: ${script.name} (活跃)`);
 
       for (const task of script.tasks) {
         if (task.isExecuted) continue;
 
+        console.log(`[测试脚本] 检查任务: ${task.action}, 触发时间: ${task.triggerTime.toLocaleString('zh-CN')}, 当前时间: ${currentTime.toLocaleString('zh-CN')}`);
+
         // 检查是否到了执行时间
         if (currentTime >= task.triggerTime) {
+          console.log(`[测试脚本] 任务达到执行时间，开始执行: ${task.action}`);
           try {
             await this.executeTask(script, task);
             task.isExecuted = true;
@@ -130,6 +141,9 @@ export class TestScriptService {
           } catch (error) {
             console.error(`任务执行失败: ${script.name} - ${task.action}`, error);
           }
+        } else {
+          const timeDiff = task.triggerTime.getTime() - currentTime.getTime();
+          console.log(`[测试脚本] 任务还需等待 ${Math.round(timeDiff / 1000)} 秒`);
         }
       }
     }
@@ -154,13 +168,30 @@ export class TestScriptService {
 
   // 创建充电请求
   private async createChargingRequest(task: TestTask): Promise<void> {
-    // 检查用户是否存在
-    const user = await prisma.user.findUnique({
+    // 检查用户是否存在，如果不存在则创建
+    let user = await prisma.user.findUnique({
       where: { id: task.userId }
     });
 
     if (!user) {
-      throw new Error(`用户不存在: ${task.userId}`);
+      console.log(`用户 ${task.userId} 不存在，自动创建测试用户`);
+      try {
+        // 自动创建测试用户
+        const hashedPassword = await bcrypt.hash('123456', 10);
+        user = await prisma.user.create({
+          data: {
+            id: task.userId,
+            username: task.userId.replace('test_user_', 'testuser'),
+            email: `${task.userId}@example.com`,
+            password: hashedPassword,
+            phoneNumber: `1380000000${task.userId.slice(-1)}`,
+            role: 'USER'
+          }
+        });
+        console.log(`测试用户 ${task.userId} 创建成功`);
+      } catch (createError) {
+        throw new Error(`创建测试用户失败: ${task.userId}, 错误: ${createError}`);
+      }
     }
 
     // 检查用户是否已有未完成的请求
@@ -187,8 +218,8 @@ export class TestScriptService {
         queueNumber,
         userId: task.userId,
         chargingMode: task.chargingMode,
-        requestedAmount: task.requestedAmount,
-        batteryCapacity: task.requestedAmount * 2, // 假设电池容量是请求充电量的2倍
+        requestedAmount: typeof task.requestedAmount === 'string' ? parseFloat(task.requestedAmount) : task.requestedAmount,
+        batteryCapacity: (typeof task.requestedAmount === 'string' ? parseFloat(task.requestedAmount) : task.requestedAmount) * 2, // 假设电池容量是请求充电量的2倍
         position: 0, // 初始位置设为0，后续会由调度系统更新
         status: 'WAITING',
         createdAt: virtualTimeService.getCurrentTime()
@@ -212,15 +243,17 @@ export class TestScriptService {
       return;
     }
 
+    const requestedAmount = typeof task.requestedAmount === 'string' ? parseFloat(task.requestedAmount) : task.requestedAmount;
+
     await prisma.queueRecord.update({
       where: { id: queueRecord.id },
       data: {
-        requestedAmount: task.requestedAmount,
+        requestedAmount: requestedAmount,
         updatedAt: virtualTimeService.getCurrentTime()
       }
     });
 
-    console.log(`自动修改充电请求: 用户${task.userId}, 新电量${task.requestedAmount}度`);
+    console.log(`自动修改充电请求: 用户${task.userId}, 新电量${requestedAmount}度`);
   }
 
   // 取消充电请求
