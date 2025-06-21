@@ -79,7 +79,6 @@ class AuthService {
     if (oldToken && oldUser) {
       try {
         const user = JSON.parse(oldUser);
-        const role = user.role as 'USER' | 'ADMIN';
         
         // 迁移到新格式
         this.saveAuthData({ user, token: oldToken });

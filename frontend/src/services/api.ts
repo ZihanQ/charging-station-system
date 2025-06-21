@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { authService } from './auth';
 
-const API_BASE_URL = 'http://localhost:3000/api';
+const API_BASE_URL = '/api';
 
 // 创建axios实例
 const apiClient = axios.create({
@@ -15,6 +15,13 @@ const apiClient = axios.create({
 // 请求拦截器 - 自动添加token
 apiClient.interceptors.request.use(
   (config) => {
+    // 登录和注册接口不需要token
+    if (config.url?.includes('/auth/login') || 
+        config.url?.includes('/auth/admin/login') || 
+        config.url?.includes('/auth/register')) {
+      return config;
+    }
+
     let token: string | null = null;
     
     // 根据请求路径智能选择token

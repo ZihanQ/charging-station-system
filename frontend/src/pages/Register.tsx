@@ -17,6 +17,8 @@ const Register: React.FC = () => {
     confirmPassword: string;
     phoneNumber?: string;
   }) => {
+    console.log('开始注册流程，表单数据:', values);
+    
     if (values.password !== values.confirmPassword) {
       message.error('两次输入的密码不一致');
       return;
@@ -24,17 +26,28 @@ const Register: React.FC = () => {
 
     setLoading(true);
     try {
-      const response = await authAPI.register({
+      console.log('发送注册请求...');
+      const requestData = {
         username: values.username,
         email: values.email,
         password: values.password,
         phoneNumber: values.phoneNumber
-      });
+      };
+      console.log('注册请求数据:', requestData);
       
-      apiUtils.handleResponse(response);
+      const response = await authAPI.register(requestData);
+      
+      console.log('注册响应:', response);
+      const result = apiUtils.handleResponse(response);
+      console.log('处理后的响应数据:', result);
+      
       message.success('注册成功！请登录');
       navigate('/');
-    } catch (error) {
+    } catch (error: any) {
+      console.error('注册错误:', error);
+      if (error.response) {
+        console.error('错误响应:', error.response.data);
+      }
       message.error(apiUtils.handleError(error));
     } finally {
       setLoading(false);

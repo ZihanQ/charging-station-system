@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Button, DatePicker, InputNumber, Switch, message, Space, Statistic, Typography, Alert } from 'antd';
+import { Card, Form, Button, DatePicker, InputNumber, message, Space, Statistic, Typography, Alert } from 'antd';
 import { PlayCircleOutlined, PauseCircleOutlined, ClockCircleOutlined, FastForwardOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import apiClient, { apiUtils } from '../services/api';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface VirtualTimeStatus {
   isVirtualMode: boolean;
